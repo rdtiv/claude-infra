@@ -1,19 +1,19 @@
 # claude-infra
 
-Dan's portable Claude Code environment: the two-tier delegation policy
+A portable Claude Code environment: the two-tier delegation policy
 (orchestrator designs, pinned cheaper workers execute), mechanically enforced,
 plus the mission/worktree lifecycle. Canonical source of truth — machines and
 repos install *from here*; edits happen *here first*.
 
-Origin: the Jul 2026 sartora sprint analysis — ~1/3 of subagent turns ran on
-Fable by inheritance because the Agent tool's `model` param is optional and
-prose doctrine wasn't mechanically enforced. Reference repo-level
-implementation: sartora PR #222.
+Origin: analysis of a five-day multi-agent sprint found roughly a third of
+subagent turns running on the frontier model by silent inheritance — the
+Agent tool's `model` param is optional and prose doctrine wasn't
+mechanically enforced.
 
 ## Install on a machine
 
 ```sh
-git clone git@github.com:rdtiv/claude-infra.git && cd claude-infra
+git clone <this-repo-url> claude-infra && cd claude-infra
 ./install.sh          # idempotent; re-run after every pull
 ```
 
@@ -47,7 +47,7 @@ repo's `.claude/settings.json` (command:
 `node "${CLAUDE_PROJECT_DIR:-$PWD}/.claude/hooks/agent-model-guard.mjs"`),
 whitelisted in `.gitignore` if `.claude/*` is ignored, landed as a PR.
 Repo-specific conventions (lint commands, review doctrine, port rules) may be
-folded into the agent bodies and the mission command — see sartora's versions.
+folded into the repo-level copies of the agent bodies and the mission command.
 
 ## Expected behavior / non-bugs
 
@@ -57,7 +57,7 @@ folded into the agent bodies and the mission command — see sartora's versions.
 - In repos with the repo-level hook, both hooks fire; duplicate denies are
   harmless.
 - Workflow-internal `agent()` calls bypass PreToolUse — pin models inside
-  workflow scripts (see sartora `.claude/workflows/code-review-mixed.js`).
+  workflow scripts in the workflow script itself.
 - The hook fails open on unparseable input and only evaluates the Agent tool.
 
 ## Updating

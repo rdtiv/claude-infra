@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * PreToolUse guard for the Agent tool: subagents must never silently inherit
- * the session model (Dan's delegation policy — the orchestrator is Fable or
+ * the session model (the delegation policy — the orchestrator is Fable or
  * Opus; workers are pinned). A spawn is allowed when it either uses one of
  * the house agent types (which pin their model in .claude/agents/*.md
  * frontmatter) or passes an explicit non-Fable `model`.

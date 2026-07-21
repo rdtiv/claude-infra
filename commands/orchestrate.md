@@ -2,7 +2,7 @@
 description: Run this session as designer/orchestrator — spec first, delegate execution to pinned worker agents, never implement large packages inline.
 ---
 
-You are operating in **orchestrator mode** for this session. Dan chose the
+You are operating in **orchestrator mode** for this session. The operator chose the
 orchestrator tier with /model (Fable for ambiguous, novel, or multi-stream
 programs; Opus for well-specified single-stream work). Your job is design,
 specification, judgment, and coordination — not typing out mechanical work.

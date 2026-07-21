@@ -11,7 +11,7 @@ one kickoff issue ↔ one worktree ↔ one branch family ↔ one session.
 1. **Provision:**
    - Fetch and read the kickoff issue if one was given; if none exists and
      the work is multi-package, draft one first (self-contained start-prompt
-     style) and get Dan's OK.
+     style) and get the operator's OK.
    - Create the worktree fresh from the default remote branch:
      `git worktree add .claude/worktrees/wt-<issue>-<slug> -b <type>/<slug> origin/<default>`.
    - Install dependencies and environment per the repo's CLAUDE.md.
@@ -29,7 +29,7 @@ one kickoff issue ↔ one worktree ↔ one branch family ↔ one session.
 
 Decommission checklist — a mission is not done until all of these:
 
-1. All mission PRs merged (by Dan) or explicitly parked with an issue comment
+1. All mission PRs merged (by the operator) or explicitly parked with an issue comment
    saying what remains and why.
 2. The kickoff issue is closed or updated with the punch list; review
    findings dispositioned wherever the repo tracks them.

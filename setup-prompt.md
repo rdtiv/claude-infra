@@ -1,6 +1,6 @@
 # Claude Code delegation infrastructure — machine setup prompt
 
-> **Canonical source is the `claude-infra` repo** (github.com/rdtiv/claude-infra):
+> **Canonical source is the `claude-infra` repo** (your claude-infra clone):
 > `git clone` + `./install.sh` is the preferred install. This file is the
 > no-git fallback — paste it into a Claude Code session on the target machine
 > and say *"execute this"*. Everything needed is inline. Safe to re-run;
@@ -8,16 +8,17 @@
 > `commands/mission.md` (worktree lifecycle) — if installing from this file,
 > copy that from the repo when you can.
 
-**What it installs:** Dan's two-tier delegation policy. The main session
+**What it installs:** a two-tier delegation policy. The main session
 (Fable or Opus, chosen at session start via `/model`) designs, specs, and
 judges; subagents execute on pinned cheaper models and **never inherit the
 session model**. Enforced three ways: named agent types with models pinned in
 frontmatter, a `PreToolUse` hook that rejects inheriting/Fable spawns, and a
 `/orchestrate` command that primes the session contract.
 
-Origin: sartora PR #222 (repo-level template) + the Jul 2026 sprint analysis —
-~1/3 of subagent turns ran on Fable by inheritance because the Agent tool's
-`model` param is optional and prose doctrine wasn't mechanically enforced.
+Origin: analysis of a five-day multi-agent sprint found roughly a third of
+subagent turns running on the frontier model by silent inheritance — the
+Agent tool's `model` param is optional and prose doctrine wasn't
+mechanically enforced.
 
 ---
 
@@ -44,9 +45,9 @@ cloud sessions (where `~/.claude` doesn't exist), copy the same five agent
 files + the hook into the repo's `.claude/agents/` and `.claude/hooks/`, add
 the same `PreToolUse` block to the repo's `.claude/settings.json`, whitelist
 `.claude/agents/` and `.claude/hooks/` in `.gitignore` if `.claude/*` is
-ignored, add the Part 3 doctrine to the repo CLAUDE.md, and land it as a PR
-(reference: sartora PR #222). Repo-specific conventions (lint commands, house
-review doctrine) may be folded into the agent bodies, as sartora's versions do.
+ignored, add the Part 3 doctrine to the repo CLAUDE.md, and land it as a PR.
+Repo-specific conventions (lint commands, house review doctrine, port rules)
+may be folded into the repo-level copies of the agent bodies.
 
 ---
 
@@ -287,7 +288,7 @@ process.stdin.on("end", () => {
 description: Run this session as designer/orchestrator — spec first, delegate execution to pinned worker agents, never implement large packages inline.
 ---
 
-You are operating in **orchestrator mode** for this session. Dan chose the
+You are operating in **orchestrator mode** for this session. The operator chose the
 orchestrator tier with /model (Fable for ambiguous, novel, or multi-stream
 programs; Opus for well-specified single-stream work). Your job is design,
 specification, judgment, and coordination — not typing out mechanical work.
@@ -386,14 +387,12 @@ start) and confirm the new types appear when spawning agents.
 
 ## Notes & expected behavior
 
-- **Both layers may fire** in a repo that also has the repo-level hook
-  (e.g. sartora) — duplicate denies are harmless.
+- **Both layers may fire** in a repo that also has the repo-level hook — duplicate denies are harmless.
 - **Intentional friction:** built-in types (Explore, Plan, general-purpose)
   and plugin agents will be denied until the orchestrator passes `model:`
   explicitly — one corrective round-trip, by design.
 - The hook **fails open** on unparseable input and only evaluates
   `tool_name === "Agent"`; Workflow-internal `agent()` calls don't pass
-  through PreToolUse — pin models inside workflow scripts (see sartora's
-  `code-review-mixed.js` for the pattern).
+  through PreToolUse — pin models inside the workflow scripts themselves.
 - Session-start language: `/model fable` or `/model opus`, then
   `/orchestrate <goal>` for multi-package work.

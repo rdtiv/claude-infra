@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install/refresh Dan's Claude Code delegation infrastructure into ~/.claude.
+# Install/refresh the Claude Code delegation infrastructure into ~/.claude.
 # Idempotent — safe to re-run after every git pull of this repo.
 set -euo pipefail
 
