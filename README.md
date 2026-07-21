@@ -13,7 +13,7 @@ mechanically enforced.
 ## Install on a machine
 
 ```sh
-git clone <this-repo-url> claude-infra && cd claude-infra
+git clone https://github.com/rdtiv/claude-infra.git && cd claude-infra
 ./install.sh          # idempotent; re-run after every pull
 ```
 
