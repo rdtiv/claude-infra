@@ -14,7 +14,13 @@ one kickoff issue ↔ one worktree ↔ one branch family ↔ one session.
      style) and get the operator's OK.
    - Create the worktree fresh from the default remote branch:
      `git worktree add .claude/worktrees/wt-<issue>-<slug> -b <type>/<slug> origin/<default>`.
-   - Install dependencies and environment per the repo's CLAUDE.md.
+   - Install dependencies and environment per the repo's CLAUDE.md. In a
+     fresh worktree, install *real* dependencies (`npm ci` / `pnpm i` /
+     `bun install` / etc.) — do NOT symlink `node_modules` from the main
+     checkout. Some bundlers (notably Turbopack) reject a `node_modules`
+     symlink that points outside the worktree's filesystem root and the
+     build fails ("Symlink node_modules is invalid, it points out of the
+     filesystem root").
    - If the repo runs a dev server, claim the port deterministically:
      `3000 + (issue# % 1000)`; state it in your first status line.
 2. **Execute** under the orchestration contract (`/orchestrate`): scout recon
