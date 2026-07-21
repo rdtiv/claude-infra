@@ -7,7 +7,7 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 
 mkdir -p "$HOME/.claude/agents" "$HOME/.claude/hooks" "$HOME/.claude/commands"
 cp "$DIR"/agents/*.md "$HOME/.claude/agents/"
-cp "$DIR"/hooks/agent-model-guard.mjs "$HOME/.claude/hooks/"
+cp "$DIR"/hooks/* "$HOME/.claude/hooks/"
 cp "$DIR"/commands/*.md "$HOME/.claude/commands/"
 echo "agents, hook, commands copied to ~/.claude"
 

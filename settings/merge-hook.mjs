@@ -1,31 +1,45 @@
 #!/usr/bin/env node
-// Idempotently merge the agent-model-guard PreToolUse hook into
-// ~/.claude/settings.json (creates the file/objects as needed, never
-// clobbers existing hooks or other settings).
+// Idempotently merge the delegation hooks into ~/.claude/settings.json:
+//   - PreToolUse  : agent-model-guard (subagents never inherit the session model)
+//   - SessionStart: session-protocol (surface the standing ritual at session open)
+// Creates the file/objects as needed; never clobbers existing hooks or settings.
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 const path = join(homedir(), ".claude", "settings.json");
 const settings = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
-
-const COMMAND = 'node "$HOME/.claude/hooks/agent-model-guard.mjs"';
 settings.hooks ??= {};
-settings.hooks.PreToolUse ??= [];
 
-const already = settings.hooks.PreToolUse.some(
-  (entry) =>
-    entry.matcher === "Agent" &&
-    (entry.hooks || []).some((h) => (h.command || "").includes("agent-model-guard")),
+let changed = false;
+
+function ensure(event, matcher, command, marker) {
+  settings.hooks[event] ??= [];
+  const present = settings.hooks[event].some((entry) =>
+    (entry.hooks || []).some((h) => (h.command || "").includes(marker)),
+  );
+  if (present) {
+    console.log(`settings.json: ${marker} already present — no change`);
+    return;
+  }
+  const entry = { hooks: [{ type: "command", command }] };
+  if (matcher) entry.matcher = matcher;
+  settings.hooks[event].push(entry);
+  changed = true;
+  console.log(`settings.json: ${marker} added (${event})`);
+}
+
+ensure(
+  "PreToolUse",
+  "Agent",
+  'node "$HOME/.claude/hooks/agent-model-guard.mjs"',
+  "agent-model-guard",
+);
+ensure(
+  "SessionStart",
+  "startup|clear",
+  'bash "$HOME/.claude/hooks/session-protocol.sh"',
+  "session-protocol",
 );
 
-if (already) {
-  console.log("settings.json: agent-model-guard hook already present — no change");
-} else {
-  settings.hooks.PreToolUse.push({
-    matcher: "Agent",
-    hooks: [{ type: "command", command: COMMAND }],
-  });
-  writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
-  console.log("settings.json: agent-model-guard hook added");
-}
+if (changed) writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
