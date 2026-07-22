@@ -55,5 +55,32 @@ Decommission checklist — a mission is not done until all of these:
   mission — decommission and provision fresh.
 - Never rename a branch that has an open PR (GitHub auto-closes it,
   unrecoverably).
+- **Stacked PRs with kept branches: retarget before every merge.** `gh pr
+  merge` merges head→base *literally*; GitHub only retargets dependents to
+  main when the base branch is DELETED. With kept branches (the safe
+  default), merging a stacked PR lands its content into the branch below,
+  not main — silently, with the PR showing MERGED. Procedure: after the PR
+  below lands, `gh pr edit <next#> --base main` FIRST, then merge; then
+  **tree-diff the landing** (`git diff origin/main <branch> --stat`) —
+  never trust the MERGED state alone. (Learned on a mission where three
+  PRs sat "merged" in a branch chain while main held only the first.)
+- **Verify commands by exit code, never through a pipe.** `build | tail`
+  reports tail's exit, not the build's — a failing build shipped that way
+  once. Pattern: `cmd > log 2>&1; echo "exit: $?"`. Same family: never
+  filter push output.
+- **Shell cwd resets between tool calls**: a bare `git checkout` / `git
+  push` / `npm run dev` can silently execute in the main checkout. Always
+  `git -C <worktree>` or `cd <worktree> && ...` in the same command line,
+  and verify a dev server's cwd (`lsof -p <pid> -d cwd`) before trusting
+  what it serves.
+- **Restart the dev server after switching worktree branches** before
+  trusting behavior probes — hot reload across branch switches serves
+  stale module state (two model-behavior probes were invalidated this
+  way).
+- **Parallel missions can collide on main** (file moves, shared docs).
+  At kickoff, note territories the mission will touch; before integration
+  merges, re-fetch and check whether main moved under you — resolve with
+  content-from-your-branch, structure-from-main (rename detection usually
+  helps), and re-verify with the doc/lint gates of CURRENT main.
 
 Mission: $ARGUMENTS
