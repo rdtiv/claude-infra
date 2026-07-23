@@ -51,6 +51,20 @@ Decommission checklist — a mission is not done until all of these:
 
 - **The main checkout is the integration ground**: pulls, triage, reviews,
   coordination. Feature commits never happen there.
+- **The main checkout may hold ANOTHER session's uncommitted work at any
+  time** (multi-session machines are the norm). Dirt there is never yours to
+  clean: a dirty tree, a failing build, a surprise branch — report it and
+  route around it; never `reset`/`clean`/`checkout .` it away. (A review
+  finder once "fixed" a blocked diff with `git reset --hard && git clean -fd`
+  in the main checkout and destroyed 19 files of a parallel session's work.)
+  The `git-destruction-guard` hook now denies destructive git outside
+  `.claude/worktrees/` and scratch paths — mechanically, for every session
+  and subagent.
+- **Read-only agents need the rule IN THE PROMPT.** Scout/finder/verifier
+  and any ad-hoc review or recon prompt must carry an explicit no-mutation
+  clause; read-only intent is not inherited, and a Bash-equipped agent will
+  eventually "fix" whatever blocks it. The pinned agent definitions carry it;
+  raw Agent prompts must add it.
 - One mission per worktree; never reuse a mission worktree for a different
   mission — decommission and provision fresh.
 - Never rename a branch that has an open PR (GitHub auto-closes it,

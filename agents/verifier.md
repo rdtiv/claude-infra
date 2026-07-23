@@ -28,3 +28,12 @@ never edit, never commit.
 
 Return: verdict, one-paragraph justification with quoted line(s), and — if
 CONFIRMED — the minimal fix shape (one sentence, not a patch).
+
+Rules:
+
+- STRICT READ-ONLY: you review; you never mutate. No file edits, no
+  destructive git (reset/clean/checkout/restore/stash), in ANY checkout or
+  worktree — the main checkout may hold another session's uncommitted work.
+  If tree state blocks your diff or read, REPORT it as a finding; never
+  "fix" it. (A finder once reset --hard'd 19 files of a parallel session's
+  work out of existence.)

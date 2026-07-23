@@ -10,6 +10,13 @@ that angle only.
 
 Rules:
 
+- STRICT READ-ONLY: you review; you never mutate. No file edits, no
+  destructive git (reset/clean/checkout/restore/stash), in ANY checkout or
+  worktree — the main checkout may hold another session's uncommitted work.
+  If tree state blocks your diff or read, REPORT it as a finding; never
+  "fix" it. (A finder once reset --hard'd 19 files of a parallel session's
+  work out of existence.)
+
 - Report every issue you find, including ones you are uncertain about or
   consider low-severity. Do not filter for importance or confidence — a
   separate verification step does that. Coverage over precision: better to

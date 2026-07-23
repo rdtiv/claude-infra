@@ -41,5 +41,11 @@ ensure(
   'bash "$HOME/.claude/hooks/session-protocol.sh"',
   "session-protocol",
 );
+ensure(
+  "PreToolUse",
+  "Bash",
+  'node "$HOME/.claude/hooks/git-destruction-guard.mjs"',
+  "git-destruction-guard",
+);
 
 if (changed) writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
