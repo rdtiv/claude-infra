@@ -3,8 +3,25 @@ description: Start or finish a mission — one worktree, one branch family, one 
 ---
 
 You are running the **mission lifecycle**. A mission is one unit of work:
-one kickoff issue ↔ one worktree ↔ one branch family ↔ one session.
-`$ARGUMENTS` is either a kickoff (issue number and/or goal) or the word `end`.
+one kickoff issue ↔ one branch family ↔ one session. `$ARGUMENTS` is either a
+kickoff (issue number and/or goal) or the word `end`.
+
+A mission may hold **more than one worktree**. What must stay singular is the
+issue, the branch family, and the session — not the checkout count. Two tiers:
+
+- **Ephemeral agent worktrees** — the default for concurrent writers. Pass
+  `isolation: "worktree"` on the Agent call and the harness gives that agent its
+  own checkout, auto-removed if it changes nothing. No branch, no bookkeeping,
+  nothing to decommission. Reach for this whenever parallel implementors would
+  otherwise write the same files.
+- **Long-lived stream worktrees** — when a mission has genuinely independent
+  streams that each want their own branch and PR. One per stream, named
+  `.claude/worktrees/wt-<issue>-<stream>` on `<type>/<slug>-<stream>`.
+
+Prefer agent isolation; it costs nothing and cleans itself up. Provision a second
+long-lived worktree only when the streams need separate branches — independent
+territories that will land as separate PRs. If two streams would touch the same
+files, they are one stream.
 
 ## If starting (`/mission <issue# or goal>`)
 
@@ -14,6 +31,11 @@ one kickoff issue ↔ one worktree ↔ one branch family ↔ one session.
      style) and get the operator's OK.
    - Create the worktree fresh from the default remote branch:
      `git worktree add .claude/worktrees/wt-<issue>-<slug> -b <type>/<slug> origin/<default>`.
+     If the mission has independent streams that will land as separate PRs, add
+     one per stream — `wt-<issue>-<stream>` on `<type>/<slug>-<stream>`, each
+     branched from `origin/<default>`, never from a sibling stream. Record the
+     full worktree list on the kickoff issue; `/mission end` has to decommission
+     every one of them, and an unrecorded worktree is one that gets stranded.
    - Install dependencies and environment per the repo's CLAUDE.md. In a
      fresh worktree, install *real* dependencies (`npm ci` / `pnpm i` /
      `bun install` / etc.) — do NOT symlink `node_modules` from the main
@@ -46,13 +68,20 @@ Decommission checklist — a mission is not done until all of these:
    agent's explicit no-docs-impact verdict is recorded on the kickoff issue.
 3. The kickoff issue is closed or updated with the punch list; review
    findings dispositioned wherever the repo tracks them.
-4. Verify nothing unmerged: worktree `git status --short` is clean AND
-   `git diff <default> <branch>` for source files is empty (squash merges
-   break ancestry — always tree-diff, never trust `branch --merged`).
-5. Remove the worktree, delete the local branch, and delete the remote
-   branch only after the whole stack is in.
-6. Report the decommission in your final summary: worktree removed, branches
-   deleted, state externalized where.
+4. Verify nothing unmerged — **for every mission worktree, not just the one you
+   are standing in**. Enumerate them first (`git worktree list`, cross-checked
+   against the list recorded on the kickoff issue), then for each: `git status
+   --short` is clean AND `git diff <default> <branch>` for source files is empty
+   (squash merges break ancestry — always tree-diff, never trust
+   `branch --merged`). A mission with three worktrees and one checked is a
+   mission with two unverified checkouts.
+5. Remove **every** mission worktree and delete the whole branch family; delete
+   remote branches only after the whole stack is in. Re-run `git worktree list`
+   afterwards and confirm none of the mission's entries survive — a stranded
+   worktree silently blocks the next mission from reusing the branch name, and
+   the pruning is what the singular phrasing here used to miss.
+6. Report the decommission in your final summary: which worktrees were removed,
+   which branches deleted, state externalized where.
 
 ## Standing rules (both directions)
 
@@ -85,8 +114,15 @@ Decommission checklist — a mission is not done until all of these:
   clause; read-only intent is not inherited, and a Bash-equipped agent will
   eventually "fix" whatever blocks it. The pinned agent definitions carry it;
   raw Agent prompts must add it.
-- One mission per worktree; never reuse a mission worktree for a different
-  mission — decommission and provision fresh.
+- One mission per **worktree set**; never reuse a mission worktree for a
+  different mission — decommission and provision fresh. Multiple worktrees
+  within one mission are fine and expected for independent streams (see the
+  two tiers above); what is never fine is a worktree outliving its mission.
+- **Long commit messages and PR bodies go in a file**, not inline: `git commit
+  -F <file>` / `gh pr --body-file <file>`. The git-destruction-guard inspects
+  the Bash command text, so a message that *describes* destructive git — which
+  is exactly what an incident write-up does — gets denied from a non-scratch
+  cwd. Same applies to any test fixture containing those commands.
 - Never rename a branch that has an open PR (GitHub auto-closes it,
   unrecoverably).
 - **Stacked PRs with kept branches: retarget before every merge.** `gh pr
