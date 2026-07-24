@@ -39,9 +39,11 @@ Decommission checklist — a mission is not done until all of these:
    saying what remains and why.
 2. **Documentation gate**: launch the pinned `documentarian` agent over the
    mission's merged work (give it the kickoff issue number and the merged PR
-   list). The mission is not documented until its docs PR has landed through
-   the repo's review gate, or the agent's explicit no-docs-impact verdict is
-   recorded on the kickoff issue. Do not decommission ahead of this gate.
+   list). The gate closes when one of these is true: the docs PR has landed
+   through the repo's review gate; the docs PR is open, gated, and explicitly
+   parked on the kickoff issue as the remaining item (merging stays a human
+   decision — never block decommission on the operator's merge timing); or the
+   agent's explicit no-docs-impact verdict is recorded on the kickoff issue.
 3. The kickoff issue is closed or updated with the punch list; review
    findings dispositioned wherever the repo tracks them.
 4. Verify nothing unmerged: worktree `git status --short` is clean AND
