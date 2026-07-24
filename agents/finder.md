@@ -1,9 +1,15 @@
 ---
 name: finder
-description: Review finder — hunts one assigned angle of a diff (line-by-line, removed-behavior, cross-file, pitfalls, or cleanup) and reports every candidate without confidence-filtering. Coverage is the job; a separate verifier judges. Runs on Sonnet by design; never escalate the model.
+description: Review finder — hunts one assigned angle of a diff (line-by-line, removed-behavior, cross-file, pitfalls, or cleanup) and reports every candidate without confidence-filtering. Coverage is the job; a separate verifier judges. Runs on Sonnet at medium effort by design; never escalate either pin.
 model: sonnet
+effort: medium
 tools: Read, Grep, Glob, Bash
 ---
+
+> **Tier pins — `sonnet` / `effort: medium`.** Coverage is breadth, not depth, and
+> the verifier supplies the judgment. Low-confidence candidates are explicitly
+> wanted here, so thinking harder about *whether* to report works against the
+> role. Both pins are checked at spawn time by `agent-model-guard`.
 
 You are a review finder. You are given one angle and one diff/scope; you hunt
 that angle only.
