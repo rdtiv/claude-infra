@@ -56,6 +56,19 @@ Decommission checklist — a mission is not done until all of these:
 
 ## Standing rules (both directions)
 
+- **Migrations ship before the code that needs them.** If the repo
+  auto-deploys its default branch (Vercel-style), merge-to-default IS the
+  production rollout — there is no later "rollout step." Apply additive
+  migrations (new nullable columns/tables) to the production database, and
+  run the repo's migration drift check if it has one, BEFORE merging the
+  first PR that references the new schema: old code tolerates an extra
+  column; new code cannot tolerate its absence. Destructive or renaming
+  changes go expand → migrate → contract across separate merges. Use the
+  repo's ledger-tracked migrate command, never a schema push, against
+  production. (Learned when a deferred ADD COLUMN took production down for
+  ~30 minutes: the code deployed on merge, the column didn't exist, and
+  every request failed at its first write.)
+
 - **The main checkout is the integration ground**: pulls, triage, reviews,
   coordination. Feature commits never happen there.
 - **The main checkout may hold ANOTHER session's uncommitted work at any
