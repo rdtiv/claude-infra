@@ -30,7 +30,7 @@ session and say "execute this".
 | `~/.claude/hooks/git-destruction-guard.mjs` | PreToolUse guard: denies working-tree-destroying git (`reset --hard`, `clean -f`, `checkout .`, `restore`, `stash drop`) outside `.claude/worktrees/` and scratch paths — the main checkout may hold another session's uncommitted work |
 | `~/.claude/hooks/session-protocol.sh` | SessionStart hook: injects the standing ritual so every session opens by surfacing the protocol (model tier → /mission → /orchestrate) |
 | `~/.claude/commands/orchestrate.md` | `/orchestrate <goal>` — session contract: spec first, delegate to pinned workers, verify adversarially |
-| `~/.claude/commands/mission.md` | `/mission <issue#>` / `/mission end` — worktree lifecycle: provision fresh from origin, decommission on merge; main checkout = integration ground only |
+| `~/.claude/commands/mission.md` | `/mission <issue#>` / `/mission end` — worktree lifecycle: provision fresh from origin; at end, a `documentarian` docs gate precedes decommission; migrations ship to prod before the code that needs them; main checkout = integration ground only |
 | `~/.claude/settings.json` | Hook wiring (merged, never clobbered) |
 | `~/.claude/CLAUDE.md` | "Delegation & session modes" doctrine (appended once) |
 
