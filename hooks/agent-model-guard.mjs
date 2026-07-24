@@ -12,6 +12,7 @@ const PINNED_TYPES = new Set([
   "verifier",    // opus   — adversarial verify one candidate
   "scout",       // sonnet — read-only recon
   "architect",   // opus   — work-package specs
+  "documentarian", // opus — mission-end docs gate
 ]);
 
 const chunks = [];
@@ -45,7 +46,7 @@ process.stdin.on("end", () => {
   if (model === "fable") {
     deny(
       "Delegation policy: never spawn a Fable subagent — Fable is the orchestrator tier. " +
-        "Use subagent_type implementor/finder/scout (sonnet) or verifier/architect (opus), " +
+        "Use subagent_type implementor/finder/scout (sonnet) or verifier/architect/documentarian (opus), " +
         "or pass model: sonnet | opus | haiku explicitly.",
     );
   }
@@ -54,7 +55,7 @@ process.stdin.on("end", () => {
 
   deny(
     `Delegation policy: this spawn (${type || "no subagent_type"}) would inherit the session model. ` +
-      "Either use a house agent type — implementor/finder/scout (sonnet), verifier/architect (opus) — " +
+      "Either use a house agent type — implementor/finder/scout (sonnet), verifier/architect/documentarian (opus) — " +
       "or pass model: sonnet | opus | haiku explicitly on the Agent call.",
   );
 });
