@@ -18,16 +18,22 @@
  */
 
 const DESTRUCTIVE = [
-  /\breset\s+(?:\S+\s+)*--(?:hard|merge)\b/, // git reset --hard / --merge
-  /\bclean\b[^&|;]*\s-[a-zA-Z]*f/,           // git clean -f / -fd / -ffdx …
+  /\breset\s+(?:\S+\s+)*--(?:hard|merge)\b/,      // git reset --hard / --merge
+  /\bclean\b[^&|;]*\s(?:-[a-zA-Z]*f|--force\b)/,  // git clean -f / -fd / --force …
   /\bcheckout\s+(?:\S+\s+)*(?:--\s+)?\.(?:\s|$)/, // git checkout [--] .
-  /\bcheckout\s+(?:\S+\s+)*-f\b/,            // git checkout -f
-  /\bstash\s+(?:drop|clear)\b/,              // git stash drop/clear
+  /\bcheckout\s+(?:\S+\s+)*-f\b/,                 // git checkout -f
+  /\bcheckout\s+(?:\S+\s+)*--\s+\S/,              // git checkout <ref> -- <path> (clobbers path)
+  /\bstash\s+(?:drop|clear)\b/,                   // git stash drop/clear
 ];
 
-// `git restore` discards worktree changes unless it is a pure --staged call.
+// `git restore` discards worktree changes unless it is a pure staged (index-only)
+// call. Recognize both the long and short spellings of both flags: --staged/-S is
+// index-only (safe); --worktree/-W (or the default, no flag) touches the worktree.
 const RESTORE = /\brestore\b/;
-const RESTORE_STAGED_ONLY = /\brestore\s+(?:\S+\s+)*--staged\b(?!.*--worktree)/;
+const RESTORE_STAGED = /(?:^|\s)(?:--staged|-S)(?=\s|$)/;
+const RESTORE_WORKTREE = /(?:^|\s)(?:--worktree|-W)(?=\s|$)/;
+const restoreIsDestructive = (s) =>
+  RESTORE.test(s) && !(RESTORE_STAGED.test(s) && !RESTORE_WORKTREE.test(s));
 
 const SAFE_PATH = /(\.claude\/worktrees\/|^\/tmp\/|^\/private\/tmp\/|\/scratchpad(\/|$))/;
 
@@ -51,9 +57,14 @@ process.stdin.on("end", () => {
   // Conservative: one unsafely-scoped destructive invocation denies the call.
   const gitCalls = command.split(/(?:&&|\|\||;|\|)/).filter((s) => /\bgit\b/.test(s));
   for (const seg of gitCalls) {
+    // Test destructiveness against a quote-stripped copy so a destructive verb
+    // that only appears INSIDE a string literal — `echo "git reset --hard"`,
+    // `git log --grep="git clean -fd"`, writing docs that mention the command —
+    // is not mistaken for a real invocation. Real destructive git never quotes
+    // its subcommand/flags. Path args (e.g. `-C "…"`) stay on the original seg.
+    const scrubbed = seg.replace(/"[^"]*"/g, " ").replace(/'[^']*'/g, " ");
     const destructive =
-      DESTRUCTIVE.some((re) => re.test(seg)) ||
-      (RESTORE.test(seg) && !RESTORE_STAGED_ONLY.test(seg));
+      DESTRUCTIVE.some((re) => re.test(scrubbed)) || restoreIsDestructive(scrubbed);
     if (!destructive) continue;
 
     const cFlag = seg.match(/-C\s+("[^"]+"|'[^']+'|\S+)/);

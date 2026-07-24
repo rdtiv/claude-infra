@@ -27,7 +27,7 @@ session and say "execute this".
 |---|---|
 | `~/.claude/agents/` | Six pinned roles: `scout`/`finder`/`implementor` (sonnet), `architect`/`verifier`/`documentarian` (opus) |
 | `~/.claude/hooks/agent-model-guard.mjs` | PreToolUse guard: denies Agent spawns that would inherit the session model, name Fable, or use `subagent_type: fork` (a fork always inherits the session model) |
-| `~/.claude/hooks/git-destruction-guard.mjs` | PreToolUse guard: denies working-tree-destroying git (`reset --hard`, `clean -f`, `checkout .`, `restore`, `stash drop`) outside `.claude/worktrees/` and scratch paths — the main checkout may hold another session's uncommitted work |
+| `~/.claude/hooks/git-destruction-guard.mjs` | PreToolUse guard: denies working-tree-destroying git (`reset --hard`, `clean -f`/`--force`, `checkout .` or `checkout <ref> -- <path>`, `restore` unless staged-only, `stash drop`) outside `.claude/worktrees/` and scratch paths — the main checkout may hold another session's uncommitted work. Matches on quote-stripped command text, so commands that merely mention destructive git in a string are not blocked |
 | `~/.claude/hooks/session-protocol.sh` | SessionStart hook: injects the standing ritual so every session opens by surfacing the protocol (model tier → /mission → /orchestrate) |
 | `~/.claude/commands/orchestrate.md` | `/orchestrate <goal>` — session contract: spec first, delegate to pinned workers, verify adversarially |
 | `~/.claude/commands/mission.md` | `/mission <issue#>` / `/mission end` — worktree lifecycle: provision fresh from origin; at end, a `documentarian` docs gate precedes decommission; migrations ship to prod before the code that needs them; main checkout = integration ground only |

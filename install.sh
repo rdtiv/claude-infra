@@ -29,6 +29,17 @@ echo '{"tool_name":"Agent","tool_input":{"prompt":"x","subagent_type":"finder"}}
   | node "$HOME/.claude/hooks/agent-model-guard.mjs" | grep -q . \
   && { echo "hook verify: FAILED — pinned type was denied"; exit 1; } \
   || echo "hook verify: allow-pinned-type OK"
+
+node --check "$HOME/.claude/hooks/git-destruction-guard.mjs"
+echo '{"tool_name":"Bash","cwd":"/repo","tool_input":{"command":"git clean --force -d"}}' \
+  | node "$HOME/.claude/hooks/git-destruction-guard.mjs" | grep -q '"deny"' \
+  && echo "git-guard verify: deny-destructive-in-main OK" \
+  || { echo "git-guard verify: FAILED — destructive git not denied"; exit 1; }
+echo '{"tool_name":"Bash","cwd":"/repo","tool_input":{"command":"git status"}}' \
+  | node "$HOME/.claude/hooks/git-destruction-guard.mjs" | grep -q . \
+  && { echo "git-guard verify: FAILED — safe git was denied"; exit 1; } \
+  || echo "git-guard verify: allow-safe-git OK"
+
 node -e "JSON.parse(require('fs').readFileSync(process.env.HOME+'/.claude/settings.json'));console.log('settings.json valid')"
 
 echo
