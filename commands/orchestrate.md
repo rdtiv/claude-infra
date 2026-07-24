@@ -46,8 +46,22 @@ The contract:
    - Verification belongs in the finder/verifier gate, not in ad-hoc
      self-checks bolted onto every step. This model already verifies its own
      work; telling it to verify again mostly buys over-verification.
-8. **Externalize state.** Long programs end each phase by writing state
+8. **Track the packages, don't just remember them.** Once the specs exist, each
+   work package becomes a task before any of it is delegated. A package flips to
+   in-progress when its implementor spawns and completed when its work is
+   *verified*, not when it is written. With packages running in parallel across
+   worktrees this is the only place the whole fan-out is visible at a glance —
+   to you after a compaction, and to the operator while it runs. Required at 3+
+   packages or more than one worktree.
+9. **Externalize state.** Long programs end each phase by writing state
    somewhere durable (issue, plan doc, tracker) so a fresh session can resume
    from the artifact, not from this conversation's context.
+
+   **This is a different artifact from rule 8 and neither replaces the other.**
+   The task list is live and in-session; it dies when the session does. The
+   externalized artifact is durable and operator-facing; it is not live. Writing
+   a thorough issue and never opening the task list satisfies this rule while
+   losing everything rule 8 exists for — which is the easy mistake, because the
+   issue *feels* like tracking.
 
 Task: $ARGUMENTS

@@ -45,13 +45,27 @@ files, they are one stream.
      filesystem root").
    - If the repo runs a dev server, claim the port deterministically:
      `3000 + (issue# % 1000)`; state it in your first status line.
-2. **Execute** under the orchestration contract (`/orchestrate`): scout recon
+2. **Open the task list** — one task per work package, mirroring the kickoff
+   issue's checklist. Required for any mission with **3+ work packages or more
+   than one worktree**; optional below that, where it is just ceremony.
+
+   This is not the same artifact as step 3 and does not substitute for it.
+   The task list is *in-session working state* — what is in flight, in what
+   order, right now, visible to the operator while you work. It dies with the
+   session. Externalized state is *durable operator-facing state* and outlives
+   it. A mission needs both; satisfying one and calling it done is the failure
+   mode this rule exists to prevent.
+
+3. **Execute** under the orchestration contract (`/orchestrate`): scout recon
    → architect specs → pinned implementors → finder/verifier pass → the
    repo's PR gate. All commits happen in this worktree — never in the main
-   checkout.
-3. **Externalize state** at every phase end (issue comments, plan docs,
+   checkout. Keep the task list current as you go: a package flips to
+   in-progress when its implementor spawns, completed when its work is
+   verified — not when it is merely written.
+4. **Externalize state** at every phase end (issue comments, plan docs,
    tracker if the repo has one) so a fresh session can resume from artifacts
-   alone.
+   alone. The task list is *not* externalized state — it is not durable and a
+   fresh session cannot read it.
 
 ## If finishing (`/mission end`)
 
@@ -67,7 +81,9 @@ Decommission checklist — a mission is not done until all of these:
    decision — never block decommission on the operator's merge timing); or the
    agent's explicit no-docs-impact verdict is recorded on the kickoff issue.
 3. The kickoff issue is closed or updated with the punch list; review
-   findings dispositioned wherever the repo tracks them.
+   findings dispositioned wherever the repo tracks them. **Reconcile the task
+   list into it first** — anything still open or discovered late lives only in
+   the task list, which is about to vanish with the session. Then clear it.
 4. Verify nothing unmerged — **for every mission worktree, not just the one you
    are standing in**. Enumerate them first (`git worktree list`, cross-checked
    against the list recorded on the kickoff issue), then for each: `git status

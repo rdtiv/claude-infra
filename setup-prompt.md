@@ -705,9 +705,23 @@ The contract:
    - Verification belongs in the finder/verifier gate, not in ad-hoc
      self-checks bolted onto every step. This model already verifies its own
      work; telling it to verify again mostly buys over-verification.
-8. **Externalize state.** Long programs end each phase by writing state
+8. **Track the packages, don't just remember them.** Once the specs exist, each
+   work package becomes a task before any of it is delegated. A package flips to
+   in-progress when its implementor spawns and completed when its work is
+   *verified*, not when it is written. With packages running in parallel across
+   worktrees this is the only place the whole fan-out is visible at a glance —
+   to you after a compaction, and to the operator while it runs. Required at 3+
+   packages or more than one worktree.
+9. **Externalize state.** Long programs end each phase by writing state
    somewhere durable (issue, plan doc, tracker) so a fresh session can resume
    from the artifact, not from this conversation's context.
+
+   **This is a different artifact from rule 8 and neither replaces the other.**
+   The task list is live and in-session; it dies when the session does. The
+   externalized artifact is durable and operator-facing; it is not live. Writing
+   a thorough issue and never opening the task list satisfies this rule while
+   losing everything rule 8 exists for — which is the easy mistake, because the
+   issue *feels* like tracking.
 
 Task: $ARGUMENTS
 ```
@@ -725,6 +739,7 @@ cat <<'EOF'
 1. Orchestrator tier: /model fable (ambiguous, novel, multi-stream) or /model opus (well-specified, single-stream). Ask which if a real build is starting and none was chosen.
 2. Unit of work: /mission <issue# or goal> provisions a fresh worktree (one mission = one issue = one branch family = one session; more than one worktree is fine for independent streams); /mission end decommissions every one of them. The main checkout is integration ground only.
 3. Build contract: /orchestrate <goal> — scout recon → architect specs → parallel implementors → finder/verifier pass → the repo's PR gate. The orchestrator never types out multi-file packages inline, and equally never delegates what it would finish in a handful of tool calls.
+4. Track packages in the task list (3+ packages or >1 worktree). It is live in-session state and dies with the session; externalizing to an issue is a SEPARATE obligation, not a substitute — doing only the issue is the common miss.
 Workers pin model AND effort (scout/finder/implementor = sonnet+medium; architect = opus+xhigh; verifier/documentarian = opus+high); raw Agent spawns must pass model explicitly; the hook reads each agent's own definition and denies anything missing either pin, plus any frontier or unrecognized tier. Small conversational work needs none of this — plain prompting is fine.
 EOF
 ```
@@ -797,6 +812,7 @@ For a **repo-level** install, the commands use the project path instead:
 - Subagents **never inherit the session model or the session effort**. Delegate through the pinned agent types in `~/.claude/agents/` — `scout`/`finder`/`implementor` (sonnet, medium), `architect` (opus, xhigh), `verifier`/`documentarian` (opus, high) — or pass `model:` explicitly on raw Agent calls (`sonnet` mechanical, `opus` judgment, `haiku` trivial). Never spawn a frontier subagent. A PreToolUse hook enforces this by reading each agent's own definition, so a new agent needs both pins in its frontmatter or its spawns are denied.
 - **Why both pins, and why mechanically.** Not mainly cost — the spread is ~1.7x (opus→sonnet) to ~3.3x (fable→sonnet), real but not an order of magnitude. The durable reasons are *predictability*, since a run whose tiers are pinned is reproducible and comparable across sessions, and *rate-limit separation*, since the frontier and worker tiers draw from different buckets and pinned workers therefore don't contend with the orchestrator's own turns. Effort matters at least as much as model: near the top of the ladder it can move more tokens than a tier change does, and it is the one axis no hook can observe at spawn time — which is why the definition has to declare it.
 - `/orchestrate <goal>` invokes the full contract: scout recon → architect specs → parallel implementors → finder/verifier pass → the repo's PR gate. Use it for any multi-package build. It carries a floor as well as a ceiling: don't delegate what you'd finish in a handful of tool calls, and keep spawn counts low.
+- **Missions track their packages in the task list, and that is not the same thing as externalizing state.** The task list is live in-session working state — what is in flight, in what order, visible while the work happens — and it dies with the session. Issues and plan docs are durable operator-facing state and outlive it. A thorough issue with an untouched task list satisfies "externalize state" while losing everything the task list is for; that is the easy mistake, because the issue feels like tracking. Required at 3+ work packages or more than one worktree; below that it is ceremony.
 - `/mission <issue#>` / `/mission end` runs the worktree lifecycle: one mission = one kickoff issue = one branch family = one session. A mission may hold more than one worktree when its streams are genuinely independent; a worktree is never reused across missions. The main checkout is the integration ground — feature commits never happen there.
 ```
 

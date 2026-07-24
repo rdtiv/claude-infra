@@ -144,6 +144,23 @@ out=$(printf '%s' 'not json' | env -u CLAUDE_PROJECT_DIR HOME="$FIX" node "$AG")
 [ -z "$out" ] && ok "unparseable input fails open" || bad "unparseable: $out"
 
 # ---------------------------------------------------------------------------
+section "doctrine covers task tracking"
+# The system was silent on the task list while mandating "externalize state to a
+# tracker" — which reads as a substitute, so missions satisfied the instruction
+# via an issue and never opened the task list. These assertions exist so that
+# silence cannot quietly return.
+for f in commands/mission.md commands/orchestrate.md settings/delegation-rule.md \
+         hooks/session-protocol.sh; do
+  if grep -qi 'task list' "$DIR/$f"; then ok "$f mentions the task list"
+  else bad "$f no longer mentions the task list"; fi
+done
+if grep -qi 'not.*substitute\|does not substitute\|separate obligation\|different artifact' \
+     "$DIR/commands/mission.md" "$DIR/commands/orchestrate.md" "$DIR/settings/delegation-rule.md"; then
+  ok "doctrine distinguishes task list from externalized state"
+else
+  bad "doctrine no longer says the task list and externalized state are distinct"
+fi
+
 section "agent definitions pin both axes"
 for f in "$DIR"/agents/*.md; do
   n=$(basename "$f" .md)
