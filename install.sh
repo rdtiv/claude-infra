@@ -5,19 +5,39 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
-mkdir -p "$HOME/.claude/agents" "$HOME/.claude/hooks" "$HOME/.claude/commands"
+mkdir -p "$HOME/.claude/agents" "$HOME/.claude/hooks" "$HOME/.claude/commands" \
+         "$HOME/.claude/rules"
 cp "$DIR"/agents/*.md "$HOME/.claude/agents/"
 cp "$DIR"/hooks/* "$HOME/.claude/hooks/"
 cp "$DIR"/commands/*.md "$HOME/.claude/commands/"
-echo "agents, hook, commands copied to ~/.claude"
+echo "agents, hooks, commands copied to ~/.claude"
 
 node "$DIR/settings/merge-hook.mjs"
 
-if ! grep -q "## Delegation & session modes" "$HOME/.claude/CLAUDE.md" 2>/dev/null; then
-  cat "$DIR/settings/claude-md-snippet.md" >> "$HOME/.claude/CLAUDE.md"
-  echo "doctrine appended to ~/.claude/CLAUDE.md"
-else
-  echo "doctrine already present in ~/.claude/CLAUDE.md — not duplicated"
+# Doctrine lives in an installer-OWNED rules file, overwritten wholesale every
+# run. ~/.claude/rules/*.md is auto-loaded at user scope, so this needs no entry
+# in CLAUDE.md and no marker parsing inside it.
+#
+# It used to be appended into ~/.claude/CLAUDE.md behind a "heading already
+# present?" guard, which made every update after the first a silent no-op — the
+# doctrine on an installed machine could never change again. That is the bug
+# this replaces; do not reintroduce a conditional here.
+cp -f "$DIR/settings/delegation-rule.md" "$HOME/.claude/rules/claude-infra-delegation.md"
+echo "doctrine written to ~/.claude/rules/claude-infra-delegation.md"
+
+# Legacy installs: warn, never migrate. The old section has no reliable end
+# boundary — on a real machine it is followed by the operator's own preferences
+# with no intervening "## " heading, so a "replace to the next heading" migration
+# would eat them. The operator deletes it by hand; we only make sure they know.
+if grep -q "^## Delegation & session modes" "$HOME/.claude/CLAUDE.md" 2>/dev/null; then
+  cat <<'WARN'
+
+  ! ~/.claude/CLAUDE.md still contains a legacy "## Delegation & session modes"
+    section. Doctrine now ships as ~/.claude/rules/claude-infra-delegation.md,
+    so that section is a stale second copy and will be loaded alongside it.
+    Delete it by hand — this installer will not touch your CLAUDE.md.
+
+WARN
 fi
 
 # Verify
