@@ -1,13 +1,37 @@
 #!/usr/bin/env node
-// Idempotently merge the delegation hooks into ~/.claude/settings.json:
+// Idempotently merge the delegation hooks into a settings.json:
 //   - PreToolUse  : agent-model-guard (subagents never inherit the session model)
 //   - SessionStart: session-protocol (surface the standing ritual at session open)
+//   - PreToolUse  : git-destruction-guard (no destructive git without review)
 // Creates the file/objects as needed; never clobbers existing hooks or settings.
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+//
+// Serves two callers:
+//   - install.sh (user scope), with no args: targets ~/.claude/settings.json and
+//     emits $HOME-prefixed commands. Byte-identical to the pre-generalization
+//     behavior — this default path must never change.
+//   - sync-repo.sh (repo scope): --target <repo>/.claude/settings.json
+//     --prefix '${CLAUDE_PROJECT_DIR:-$PWD}' emits project-relative commands.
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 
-const path = join(homedir(), ".claude", "settings.json");
+function parseArgs(argv) {
+  const out = { target: null, prefix: null };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--target") out.target = argv[++i];
+    else if (a === "--prefix") out.prefix = argv[++i];
+  }
+  return out;
+}
+
+const { target, prefix } = parseArgs(process.argv.slice(2));
+
+const path = target || join(homedir(), ".claude", "settings.json");
+const cmdPrefix = prefix || "$HOME";
+
+mkdirSync(dirname(path), { recursive: true });
+
 const settings = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
 settings.hooks ??= {};
 
@@ -32,19 +56,19 @@ function ensure(event, matcher, command, marker) {
 ensure(
   "PreToolUse",
   "Agent",
-  'node "$HOME/.claude/hooks/agent-model-guard.mjs"',
+  `node "${cmdPrefix}/.claude/hooks/agent-model-guard.mjs"`,
   "agent-model-guard",
 );
 ensure(
   "SessionStart",
   "startup|clear",
-  'bash "$HOME/.claude/hooks/session-protocol.sh"',
+  `bash "${cmdPrefix}/.claude/hooks/session-protocol.sh"`,
   "session-protocol",
 );
 ensure(
   "PreToolUse",
   "Bash",
-  'node "$HOME/.claude/hooks/git-destruction-guard.mjs"',
+  `node "${cmdPrefix}/.claude/hooks/git-destruction-guard.mjs"`,
   "git-destruction-guard",
 );
 
