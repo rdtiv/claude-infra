@@ -87,10 +87,39 @@ Decommission checklist — a mission is not done until all of these:
 4. Verify nothing unmerged — **for every mission worktree, not just the one you
    are standing in**. Enumerate them first (`git worktree list`, cross-checked
    against the list recorded on the kickoff issue), then for each: `git status
-   --short` is clean AND `git diff <default> <branch>` for source files is empty
-   (squash merges break ancestry — always tree-diff, never trust
-   `branch --merged`). A mission with three worktrees and one checked is a
-   mission with two unverified checkouts.
+   --short` is clean, AND every file the branch touched has landed. A mission
+   with three worktrees and one checked is a mission with two unverified
+   checkouts.
+
+   **Two checks that look right and are not:**
+
+   - *Ancestry* — `branch --merged`, or `git log <branch> --not <default>`. A
+     squash merge rewrites the commit, so the branch tip is not an ancestor of
+     the default branch and these report unmerged work that landed perfectly
+     well. False positive, every time, on every squash-merged branch.
+   - *Plain two-dot tree-diff* — `git diff <default> <branch>`. This is only
+     empty while the default branch has not moved. The moment anything else
+     merges, it reports that difference too, and you cannot tell "my work never
+     landed" from "someone else's did." False positive that grows with time.
+
+   **What actually works** is per-file content: for each path the branch
+   touched, its blob in the branch must equal its blob in the default branch.
+
+   ```sh
+   base=$(git merge-base origin/<default> <branch>)
+   for f in $(git diff --name-only "$base" <branch>); do
+     a=$(git rev-parse "<branch>:$f" 2>/dev/null || echo none)
+     b=$(git rev-parse "origin/<default>:$f" 2>/dev/null || echo none)
+     [ "$a" = "$b" ] || echo "UNLANDED: $f"
+   done
+   ```
+
+   **Make the check gate the removal.** Never chain `git worktree remove` after
+   a command that only *prints* a verdict — `check | wc -l` succeeds whether the
+   count is 0 or 50, so `&&` runs the removal either way and the verification
+   becomes decoration. Branch on the result, or run the removal as a separate
+   step after reading it. (Learned by deleting a branch this way; the content had
+   landed, so it cost nothing, but the check had not actually been consulted.)
 5. Remove **every** mission worktree and delete the whole branch family; delete
    remote branches only after the whole stack is in. Re-run `git worktree list`
    afterwards and confirm none of the mission's entries survive — a stranded
