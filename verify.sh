@@ -257,6 +257,20 @@ if [ -f "$DIR/sync-repo.sh" ]; then
     && ok "pre-existing UserPromptSubmit hook preserved" || bad "pre-existing hook clobbered"
   [ -f "$DOWN/.claude/.claude-infra-version" ] && ok "provenance stamp written" \
     || bad "no provenance stamp"
+
+  # A repo that tracks .claude/hooks/ gives every mission worktree its own copy.
+  # --scan must count the repo once, and syncing INTO a worktree must be refused.
+  mkdir -p "$DOWN/.claude/worktrees/wt-fake/.claude/hooks"
+  cp "$DIR/hooks/agent-model-guard.mjs" "$DOWN/.claude/worktrees/wt-fake/.claude/hooks/"
+  n=$(bash "$DIR/sync-repo.sh" --scan "$SCRATCH" 2>/dev/null | grep -c 'unstamped\|—' || true)
+  hits=$(bash "$DIR/sync-repo.sh" --scan "$SCRATCH" 2>/dev/null | grep -c '/.claude/worktrees/' || true)
+  [ "$hits" -eq 0 ] && ok "--scan ignores nested mission worktrees" \
+    || bad "--scan counted $hits mission worktree(s) as installs"
+  if bash "$DIR/sync-repo.sh" "$DOWN/.claude/worktrees/wt-fake" > "$SCRATCH/wt.log" 2>&1; then
+    bad "syncing into a mission worktree was allowed"
+  else
+    ok "syncing into a mission worktree is refused"
+  fi
 else
   bad "sync-repo.sh missing"
 fi

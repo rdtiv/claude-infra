@@ -43,7 +43,15 @@ if [ "${1:-}" = "--scan" ]; then
     else
       echo "  $repo  —  unstamped"
     fi
-  done < <(find "$SCAN_DIR" -type f -path '*/.claude/hooks/agent-model-guard.mjs' -not -path '*/node_modules/*' -print0)
+  done < <(find "$SCAN_DIR" -type f -path '*/.claude/hooks/agent-model-guard.mjs' \
+             -not -path '*/node_modules/*' \
+             -not -path '*/.claude/worktrees/*' \
+             -print0)
+  # The worktrees exclusion is load-bearing, not tidiness. A repo that tracks
+  # .claude/hooks/ in git gives every mission worktree its own full copy, so
+  # without it one repo with four live missions reports as five installs — and
+  # invites someone to sync into an ephemeral checkout that is about to be
+  # removed.
   if [ "$found" -eq 0 ]; then
     echo "  (none found)"
   fi
@@ -79,6 +87,18 @@ if [ ! -d "$REPO_ARG" ]; then
   exit 1
 fi
 REPO="$(cd "$REPO_ARG" && pwd)"
+
+# Refuse to sync into a mission worktree. Those are ephemeral — decommissioned at
+# /mission end — so anything written here is thrown away, and the operator almost
+# certainly meant the repo the worktree belongs to.
+case "$REPO" in
+  */.claude/worktrees/*)
+    echo "error: $REPO is a mission worktree, not a repo checkout." >&2
+    echo "       Worktrees are decommissioned at /mission end; sync the repo instead:" >&2
+    echo "       ${REPO%%/.claude/worktrees/*}" >&2
+    exit 1
+    ;;
+esac
 TARGET_CLAUDE="$REPO/.claude"
 TARGET_HOOKS="$TARGET_CLAUDE/hooks"
 TARGET_AGENTS="$TARGET_CLAUDE/agents"
