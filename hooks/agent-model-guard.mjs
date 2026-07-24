@@ -1,19 +1,78 @@
 #!/usr/bin/env node
 /**
- * PreToolUse guard for the Agent tool: subagents must never silently inherit
- * the session model (the delegation policy — the orchestrator is Fable or
- * Opus; workers are pinned). A spawn is allowed when it either uses one of
- * the house agent types (which pin their model in .claude/agents/*.md
- * frontmatter) or passes an explicit non-Fable `model`.
+ * PreToolUse guard for the Agent tool.
+ *
+ * The delegation policy: the orchestrator is the frontier tier (Fable or Opus);
+ * workers run on pinned cheaper tiers at pinned effort. A subagent must never
+ * silently inherit either pin from the session.
+ *
+ * This guard validates the AGENT DEFINITION, not a hardcoded list of names.
+ * It resolves the agent's .md file, reads its frontmatter, and requires both an
+ * approved `model:` and an explicit `effort:`. That matters for three reasons:
+ *
+ *   1. No hand-synced list. Earlier revisions kept a PINNED_TYPES array here that
+ *      had to be edited every time an agent was added — a seventh agent was denied
+ *      until someone remembered. Adding a file is now the only step.
+ *   2. Effort gets enforcement. `effort` is not a parameter on the Agent tool, so
+ *      a hook can never observe the effort a spawn will actually run at. It CAN
+ *      refuse to spawn a house agent whose definition fails to declare one, which
+ *      turns the effort pin from a convention into an invariant.
+ *   3. Fail closed. Model approval is an ALLOWLIST. A denylist (`model === "fable"`)
+ *      silently permits the next frontier alias nobody has added a rule for; the
+ *      failure mode of a guard should be deny, not permit.
+ *
+ * Residual gap, accepted knowingly: built-in types (Explore, Plan, general-purpose)
+ * and plugin agents have no definition file here, so they are allowed on an
+ * explicit approved `model:` and their effort still inherits the session. There is
+ * no mechanism to pin effort on an agent whose definition we do not own.
  */
-const PINNED_TYPES = new Set([
-  "implementor", // sonnet — executes a work-package spec
-  "finder",      // sonnet — review finder, one angle
-  "verifier",    // opus   — adversarial verify one candidate
-  "scout",       // sonnet — read-only recon
-  "architect",   // opus   — work-package specs
-  "documentarian", // opus — mission-end docs gate
-]);
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+/** Approved worker tiers. Anything not matching is denied — including any future
+ *  frontier alias, which is the point. */
+const TIER_ALIASES = new Set(["sonnet", "opus", "haiku"]);
+/** A version-pinned ID of an approved tier, e.g. claude-sonnet-5. */
+const APPROVED_FULL_ID = /^claude-(sonnet|opus|haiku)-/;
+/** Frontier tiers, called out by name only to give a better error message. */
+const FRONTIER = /(fable|mythos)/;
+
+const EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+
+const modelApproved = (m) => TIER_ALIASES.has(m) || APPROVED_FULL_ID.test(m);
+
+/** Minimal frontmatter reader: the leading --- block, `key: value` lines only. */
+function readFrontmatter(path) {
+  let raw;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    return null; // not found / unreadable — caller falls back
+  }
+  const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!m) return {}; // file exists but has no frontmatter → pins are missing
+  const out = {};
+  for (const line of m[1].split(/\r?\n/)) {
+    const kv = line.match(/^([A-Za-z_][\w-]*)\s*:\s*(.*)$/);
+    if (kv) out[kv[1].toLowerCase()] = kv[2].trim().replace(/^["']|["']$/g, "");
+  }
+  return out;
+}
+
+/** Agent definitions resolve project-first, then user scope. */
+function findAgentDefinition(type, cwd) {
+  const roots = [];
+  const project = process.env.CLAUDE_PROJECT_DIR || cwd;
+  if (project) roots.push(join(project, ".claude", "agents"));
+  roots.push(join(homedir(), ".claude", "agents"));
+  for (const root of roots) {
+    const path = join(root, `${type}.md`);
+    const fm = readFrontmatter(path);
+    if (fm) return { fm, path };
+  }
+  return null;
+}
 
 const chunks = [];
 process.stdin.on("data", (c) => chunks.push(c));
@@ -22,13 +81,14 @@ process.stdin.on("end", () => {
   try {
     input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch {
-    process.exit(0); // unparseable — don't block
+    process.exit(0); // unparseable — fail open, never block on our own bug
   }
   if (input.tool_name !== "Agent") process.exit(0);
 
   const t = input.tool_input || {};
   const type = (t.subagent_type || "").trim();
   const model = (t.model || "").trim().toLowerCase();
+  const cwd = String(input.cwd || "");
 
   const deny = (reason) => {
     process.stdout.write(
@@ -43,30 +103,95 @@ process.stdin.on("end", () => {
     process.exit(0);
   };
 
-  if (model === "fable") {
-    deny(
-      "Delegation policy: never spawn a Fable subagent — Fable is the orchestrator tier. " +
-        "Use subagent_type implementor/finder/scout (sonnet) or verifier/architect/documentarian (opus), " +
-        "or pass model: sonnet | opus | haiku explicitly.",
-    );
-  }
+  const HOUSE =
+    "House types pin both: implementor/finder/scout (sonnet, medium), " +
+    "architect (opus, xhigh), verifier/documentarian (opus, high).";
+
   // A fork always runs on the parent's model — the Agent tool ignores `model`
-  // for subagent_type "fork". Checked before the model check, which would
-  // otherwise let a fork through on a `model:` that has no effect.
+  // for subagent_type "fork", so a `model:` on a fork looks compliant and isn't.
+  // Checked first, before any path that could allow the spawn.
   if (type.toLowerCase() === "fork") {
     deny(
       "Delegation policy: a fork always inherits the session model — the Agent tool " +
         "ignores `model` for subagent_type: fork, so a fork on a Fable/Opus session is a " +
-        "frontier-model subagent. Use a house type — implementor/finder/scout (sonnet), " +
-        "verifier/architect/documentarian (opus) — and pass the context the worker needs in its prompt.",
+        "frontier-model subagent. Use a house type and pass the context the worker needs " +
+        "in its prompt. " +
+        HOUSE,
     );
   }
-  if (PINNED_TYPES.has(type)) process.exit(0); // model pinned by the agent definition
-  if (model) process.exit(0); // explicit non-Fable model
+
+  // An explicit model on the call overrides the definition's model, so it is
+  // checked on its own terms. Allowlist: unknown tiers deny.
+  if (model && !modelApproved(model)) {
+    deny(
+      FRONTIER.test(model)
+        ? `Delegation policy: never spawn a frontier subagent (model: ${model}) — that tier is ` +
+            "the orchestrator's, and it costs 2-3x a worker tier for work a worker should do. " +
+            HOUSE
+        : `Delegation policy: model "${model}" is not an approved worker tier. Approved: ` +
+            "sonnet | opus | haiku, or a version-pinned ID of one (e.g. claude-sonnet-5). " +
+            "This guard fails closed — an unrecognized tier is denied rather than allowed. " +
+            HOUSE,
+    );
+  }
+
+  const found = type ? findAgentDefinition(type, cwd) : null;
+
+  if (found) {
+    const defModel = (found.fm.model || "").toLowerCase();
+    const defEffort = (found.fm.effort || "").toLowerCase();
+
+    // `model:` on the call overrides the definition, so only validate the
+    // definition's model when the call did not supply one.
+    if (!model) {
+      if (!defModel) {
+        deny(
+          `Delegation policy: agent "${type}" declares no \`model:\`, so it would inherit the ` +
+            `session model. Add one to ${found.path} (sonnet | opus | haiku), or pass ` +
+            "`model:` explicitly on this Agent call.",
+        );
+      }
+      if (!modelApproved(defModel)) {
+        deny(
+          FRONTIER.test(defModel)
+            ? `Delegation policy: agent "${type}" pins \`model: ${defModel}\` — a frontier tier, ` +
+                `which is the orchestrator's, not a worker's. Fix ${found.path}.`
+            : `Delegation policy: agent "${type}" pins \`model: ${defModel}\`, which is not an ` +
+                "approved worker tier (sonnet | opus | haiku, or a version-pinned ID of one). " +
+                `Fix ${found.path}. This guard fails closed on unrecognized tiers.`,
+        );
+      }
+    }
+
+    // Effort has no call-time parameter, so the definition is the only place it
+    // can be pinned — and therefore the only place it can be enforced.
+    if (!defEffort) {
+      deny(
+        `Delegation policy: agent "${type}" declares no \`effort:\`, so it would inherit the ` +
+          "session effort — a sonnet worker doing mechanical work at xhigh. Add one to " +
+          `${found.path} (low | medium | high | xhigh | max). Effort is not a parameter on ` +
+          "the Agent tool, so the definition is the only place this can be pinned.",
+      );
+    }
+    if (!EFFORTS.has(defEffort)) {
+      deny(
+        `Delegation policy: agent "${type}" pins \`effort: ${defEffort}\`, which is not a valid ` +
+          `level. Use low | medium | high | xhigh | max in ${found.path}.`,
+      );
+    }
+
+    process.exit(0); // definition validated on both axes
+  }
+
+  // No definition file: built-in types (Explore, Plan, general-purpose) and
+  // plugin agents. Allowed only on an explicit approved model — already
+  // allowlist-checked above. Effort still inherits; see the header note.
+  if (model) process.exit(0);
 
   deny(
-    `Delegation policy: this spawn (${type || "no subagent_type"}) would inherit the session model. ` +
-      "Either use a house agent type — implementor/finder/scout (sonnet), verifier/architect/documentarian (opus) — " +
-      "or pass model: sonnet | opus | haiku explicitly on the Agent call.",
+    `Delegation policy: this spawn (${type || "no subagent_type"}) would inherit the session ` +
+      "model and effort. Either use a house agent type — which pins both in its definition — " +
+      "or pass model: sonnet | opus | haiku explicitly on the Agent call. " +
+      HOUSE,
   );
 });

@@ -10,10 +10,12 @@
 
 **What it installs:** a two-tier delegation policy. The main session
 (Fable or Opus, chosen at session start via `/model`) designs, specs, and
-judges; subagents execute on pinned cheaper models and **never inherit the
-session model**. Enforced three ways: named agent types with models pinned in
-frontmatter, a `PreToolUse` hook that rejects inheriting/Fable/fork spawns, and a
-`/orchestrate` command that primes the session contract.
+judges; subagents execute on pinned cheaper models at pinned effort and
+**never inherit either from the session**. Enforced three ways: named agent
+types with model AND effort pinned in frontmatter, a `PreToolUse` hook that
+reads the spawned agent's own definition file and denies inheriting,
+frontier-tier, unrecognized-tier, and fork spawns, and a `/orchestrate`
+command that primes the session contract.
 
 Origin: analysis of a five-day multi-agent sprint found roughly a third of
 subagent turns running on the frontier model by silent inheritance — the
@@ -24,17 +26,27 @@ mechanically enforced.
 
 ## Instructions to the executing Claude session
 
-1. Create `~/.claude/agents/`, `~/.claude/hooks/`, `~/.claude/commands/` if
-   missing.
+1. Create `~/.claude/agents/`, `~/.claude/hooks/`, `~/.claude/commands/`,
+   `~/.claude/rules/` if missing.
 2. Write each file in **Part 1** below verbatim to its stated path. If a file
    already exists, overwrite it (these are the canonical versions).
 3. **Merge** — do not overwrite — the settings fragment in **Part 2** into
    `~/.claude/settings.json`: read the existing file, add the `PreToolUse`
-   entry to its `hooks` object (create `hooks` if absent, append to an
+   entries to its `hooks` object (create `hooks` if absent, append to an
    existing `PreToolUse` array rather than replacing it), and re-validate that
    the result parses as JSON.
-4. **Append** the section in **Part 3** to `~/.claude/CLAUDE.md` unless a
-   `## Delegation & session modes` heading already exists there.
+4. **Write** the section in **Part 3** to
+   `~/.claude/rules/claude-infra-delegation.md`, overwriting it wholesale if
+   it already exists — `~/.claude/rules/*.md` is auto-loaded by Claude Code
+   at user scope, so this file needs no entry in `CLAUDE.md`. This file is
+   OWNED by claude-infra: always overwrite it completely, and never write the
+   doctrine into `~/.claude/CLAUDE.md`. If an existing `~/.claude/CLAUDE.md`
+   still has a legacy `## Delegation & session modes` section from an older
+   install, that section is now a stale second copy — point it out and leave
+   it for the operator to delete by hand. Do not attempt to delete or edit it
+   yourself: that section has no reliable end boundary (nothing marks where
+   it stops before the operator's own following content begins), so an
+   automated removal risks eating unrelated text.
 5. Run the verification in **Part 4** and report the results.
 6. If the machine lacks `node` on PATH in non-interactive shells (the hook
    needs it), say so — the fix is machine-specific (nvm default alias, or
@@ -42,12 +54,12 @@ mechanically enforced.
 
 **Repo-level install (optional, per repository):** for repos that also run
 cloud sessions (where `~/.claude` doesn't exist), copy the same six agent
-files + the hook into the repo's `.claude/agents/` and `.claude/hooks/`, add
-the same `PreToolUse` block to the repo's `.claude/settings.json`, whitelist
+files + the hooks into the repo's `.claude/agents/` and `.claude/hooks/`, add
+the same `PreToolUse` blocks to the repo's `.claude/settings.json`, whitelist
 `.claude/agents/` and `.claude/hooks/` in `.gitignore` if `.claude/*` is
-ignored, add the Part 3 doctrine to the repo CLAUDE.md, and land it as a PR.
-Repo-specific conventions (lint commands, house review doctrine, port rules)
-may be folded into the repo-level copies of the agent bodies.
+ignored, and land it as a PR. Repo-specific conventions (lint commands, house
+review doctrine, port rules) may be folded into the repo-level copies of the
+agent bodies.
 
 ---
 
@@ -58,9 +70,15 @@ may be folded into the repo-level copies of the agent bodies.
 ```markdown
 ---
 name: implementor
-description: Executes a self-contained work package against a written spec. The workhorse for mechanical and well-specified implementation — WP-style packages, codemods, applying review fixes, doc edits. Runs on Sonnet by design (delegation policy); never escalate the model.
+description: Executes a self-contained work package against a written spec. The workhorse for mechanical and well-specified implementation — WP-style packages, codemods, applying review fixes, doc edits. Runs on Sonnet at medium effort by design (delegation policy); never escalate either pin.
 model: sonnet
+effort: medium
 ---
+
+> **Tier pins — `sonnet` / `effort: medium`.** The spec carries the judgment; this
+> role executes it. Extra depth here buys re-litigation of decisions the architect
+> already made. Both pins are checked at spawn time by `agent-model-guard`.
+> Re-tune against a measured regression, not intuition.
 
 You are an implementor. You execute one self-contained work package, exactly
 as specified, and report back.
@@ -90,10 +108,16 @@ Report format: what changed (per file, one line each), how it was verified
 ```markdown
 ---
 name: finder
-description: Review finder — hunts one assigned angle of a diff (line-by-line, removed-behavior, cross-file, pitfalls, or cleanup) and reports every candidate without confidence-filtering. Coverage is the job; a separate verifier judges. Runs on Sonnet by design; never escalate the model.
+description: Review finder — hunts one assigned angle of a diff (line-by-line, removed-behavior, cross-file, pitfalls, or cleanup) and reports every candidate without confidence-filtering. Coverage is the job; a separate verifier judges. Runs on Sonnet at medium effort by design; never escalate either pin.
 model: sonnet
+effort: medium
 tools: Read, Grep, Glob, Bash
 ---
+
+> **Tier pins — `sonnet` / `effort: medium`.** Coverage is breadth, not depth, and
+> the verifier supplies the judgment. Low-confidence candidates are explicitly
+> wanted here, so thinking harder about *whether* to report works against the
+> role. Both pins are checked at spawn time by `agent-model-guard`.
 
 You are a review finder. You are given one angle and one diff/scope; you hunt
 that angle only.
@@ -128,10 +152,16 @@ never invent findings to look thorough.
 ```markdown
 ---
 name: verifier
-description: Adversarial verifier — independently judges one candidate finding (or one small group at the same location) against the actual code and returns CONFIRMED / PLAUSIBLE / REFUTED with quoted evidence. Judgment work; runs on Opus by design.
+description: Adversarial verifier — independently judges one candidate finding (or one small group at the same location) against the actual code and returns CONFIRMED / PLAUSIBLE / REFUTED with quoted evidence. Judgment work; runs on Opus at high effort by design.
 model: opus
+effort: high
 tools: Read, Grep, Glob, Bash
 ---
+
+> **Tier pins — `opus` / `effort: high`.** Opus stays accurate on code review at
+> lower effort, which makes this the cheapest safe step-down among the judgment
+> roles — `high` rather than `xhigh` is a deliberate saving, not an oversight.
+> Both pins are checked at spawn time by `agent-model-guard`.
 
 You are an adversarial verifier. You are handed one candidate finding (or a
 small group at one file/line). Your job is to judge it against the actual
@@ -172,10 +202,16 @@ Rules:
 ```markdown
 ---
 name: scout
-description: Read-only recon — maps a subsystem, flow, or convention before design work and returns a file:line-anchored map. Use for "find all call sites", "map how X flows", "what patterns exist for Y". Runs on Sonnet by design; never escalate the model.
+description: Read-only recon — maps a subsystem, flow, or convention before design work and returns a file:line-anchored map. Use for "find all call sites", "map how X flows", "what patterns exist for Y". Runs on Sonnet at medium effort by design; never escalate either pin.
 model: sonnet
+effort: medium
 tools: Read, Grep, Glob, Bash
 ---
+
+> **Tier pins — `sonnet` / `effort: medium`.** Recon is mechanical: exhaustiveness
+> comes from the rules below, not from reasoning depth. Both pins are checked at
+> spawn time by `agent-model-guard`. Re-tune against a measured regression, not
+> intuition, and re-read the rationale before changing it on a new model.
 
 You are a recon scout. You are given one mapping question; you answer it from
 the code, exhaustively, and return a map another agent can act on without
@@ -209,10 +245,18 @@ conventions, and open questions you could not resolve from code alone.
 ```markdown
 ---
 name: architect
-description: Turns a goal plus recon into implementor-ready work-package specs — exact files, signatures, invariants, out-of-scope lines, and a verification plan. Design judgment; runs on Opus by design. Produces specs, never edits code.
+description: Turns a goal plus recon into implementor-ready work-package specs — exact files, signatures, invariants, out-of-scope lines, and a verification plan. Design judgment; runs on Opus at xhigh effort by design. Produces specs, never edits code.
 model: opus
+effort: xhigh
 tools: Read, Grep, Glob, Bash
 ---
+
+> **Tier pins — `opus` / `effort: xhigh`.** The highest effort pin in the house,
+> deliberately. Spec quality gates every implementor downstream, and this is the
+> one role that should be able to think *harder than the orchestrator* — which is
+> why effort is pinned absolutely rather than inherited, since an inherited value
+> can never exceed the session's. Both pins are checked at spawn time by
+> `agent-model-guard`.
 
 You are a work-package architect. You are given a goal and (usually) a
 scout's map; you produce specs that a Sonnet implementor can execute without
@@ -244,10 +288,16 @@ Read-only on source: never edit code. Your output is the spec document.
 ```markdown
 ---
 name: documentarian
-description: Mission-end documentation gate — reviews a mission's MERGED work against the docs tree, then updates stale docs and authors new ones per the repo's own authoring rules, delivered as a PR through the normal review gate (or an explicit no-docs-impact verdict). Judgment work; runs on Opus by design. Edits docs only, never source code; never merges.
+description: Mission-end documentation gate — reviews a mission's MERGED work against the docs tree, then updates stale docs and authors new ones per the repo's own authoring rules, delivered as a PR through the normal review gate (or an explicit no-docs-impact verdict). Judgment work; runs on Opus at high effort by design. Edits docs only, never source code; never merges.
 model: opus
+effort: high
 tools: Read, Grep, Glob, Bash, Write, Edit
 ---
+
+> **Tier pins — `opus` / `effort: high`.** Judgment work, but bounded by the
+> repo's own authoring rules rather than open-ended design, so it does not need
+> the architect's `xhigh`. Both pins are checked at spawn time by
+> `agent-model-guard`.
 
 You are the documentation gate for a completed mission. You run at mission
 end, after the mission's PRs have merged and BEFORE the worktree/branches
@@ -309,20 +359,79 @@ in your own worktree with explicit paths.
 ```javascript
 #!/usr/bin/env node
 /**
- * PreToolUse guard for the Agent tool: subagents must never silently inherit
- * the session model (the delegation policy — the orchestrator is Fable or
- * Opus; workers are pinned). A spawn is allowed when it either uses one of
- * the house agent types (which pin their model in .claude/agents/*.md
- * frontmatter) or passes an explicit non-Fable `model`.
+ * PreToolUse guard for the Agent tool.
+ *
+ * The delegation policy: the orchestrator is the frontier tier (Fable or Opus);
+ * workers run on pinned cheaper tiers at pinned effort. A subagent must never
+ * silently inherit either pin from the session.
+ *
+ * This guard validates the AGENT DEFINITION, not a hardcoded list of names.
+ * It resolves the agent's .md file, reads its frontmatter, and requires both an
+ * approved `model:` and an explicit `effort:`. That matters for three reasons:
+ *
+ *   1. No hand-synced list. Earlier revisions kept a PINNED_TYPES array here that
+ *      had to be edited every time an agent was added — a seventh agent was denied
+ *      until someone remembered. Adding a file is now the only step.
+ *   2. Effort gets enforcement. `effort` is not a parameter on the Agent tool, so
+ *      a hook can never observe the effort a spawn will actually run at. It CAN
+ *      refuse to spawn a house agent whose definition fails to declare one, which
+ *      turns the effort pin from a convention into an invariant.
+ *   3. Fail closed. Model approval is an ALLOWLIST. A denylist (`model === "fable"`)
+ *      silently permits the next frontier alias nobody has added a rule for; the
+ *      failure mode of a guard should be deny, not permit.
+ *
+ * Residual gap, accepted knowingly: built-in types (Explore, Plan, general-purpose)
+ * and plugin agents have no definition file here, so they are allowed on an
+ * explicit approved `model:` and their effort still inherits the session. There is
+ * no mechanism to pin effort on an agent whose definition we do not own.
  */
-const PINNED_TYPES = new Set([
-  "implementor", // sonnet — executes a work-package spec
-  "finder",      // sonnet — review finder, one angle
-  "verifier",    // opus   — adversarial verify one candidate
-  "scout",       // sonnet — read-only recon
-  "architect",   // opus   — work-package specs
-  "documentarian", // opus — mission-end docs gate
-]);
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+/** Approved worker tiers. Anything not matching is denied — including any future
+ *  frontier alias, which is the point. */
+const TIER_ALIASES = new Set(["sonnet", "opus", "haiku"]);
+/** A version-pinned ID of an approved tier, e.g. claude-sonnet-5. */
+const APPROVED_FULL_ID = /^claude-(sonnet|opus|haiku)-/;
+/** Frontier tiers, called out by name only to give a better error message. */
+const FRONTIER = /(fable|mythos)/;
+
+const EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+
+const modelApproved = (m) => TIER_ALIASES.has(m) || APPROVED_FULL_ID.test(m);
+
+/** Minimal frontmatter reader: the leading --- block, `key: value` lines only. */
+function readFrontmatter(path) {
+  let raw;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    return null; // not found / unreadable — caller falls back
+  }
+  const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!m) return {}; // file exists but has no frontmatter → pins are missing
+  const out = {};
+  for (const line of m[1].split(/\r?\n/)) {
+    const kv = line.match(/^([A-Za-z_][\w-]*)\s*:\s*(.*)$/);
+    if (kv) out[kv[1].toLowerCase()] = kv[2].trim().replace(/^["']|["']$/g, "");
+  }
+  return out;
+}
+
+/** Agent definitions resolve project-first, then user scope. */
+function findAgentDefinition(type, cwd) {
+  const roots = [];
+  const project = process.env.CLAUDE_PROJECT_DIR || cwd;
+  if (project) roots.push(join(project, ".claude", "agents"));
+  roots.push(join(homedir(), ".claude", "agents"));
+  for (const root of roots) {
+    const path = join(root, `${type}.md`);
+    const fm = readFrontmatter(path);
+    if (fm) return { fm, path };
+  }
+  return null;
+}
 
 const chunks = [];
 process.stdin.on("data", (c) => chunks.push(c));
@@ -331,13 +440,14 @@ process.stdin.on("end", () => {
   try {
     input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch {
-    process.exit(0); // unparseable — don't block
+    process.exit(0); // unparseable — fail open, never block on our own bug
   }
   if (input.tool_name !== "Agent") process.exit(0);
 
   const t = input.tool_input || {};
   const type = (t.subagent_type || "").trim();
   const model = (t.model || "").trim().toLowerCase();
+  const cwd = String(input.cwd || "");
 
   const deny = (reason) => {
     process.stdout.write(
@@ -352,32 +462,195 @@ process.stdin.on("end", () => {
     process.exit(0);
   };
 
-  if (model === "fable") {
-    deny(
-      "Delegation policy: never spawn a Fable subagent — Fable is the orchestrator tier. " +
-        "Use subagent_type implementor/finder/scout (sonnet) or verifier/architect/documentarian (opus), " +
-        "or pass model: sonnet | opus | haiku explicitly.",
-    );
-  }
+  const HOUSE =
+    "House types pin both: implementor/finder/scout (sonnet, medium), " +
+    "architect (opus, xhigh), verifier/documentarian (opus, high).";
+
   // A fork always runs on the parent's model — the Agent tool ignores `model`
-  // for subagent_type "fork". Checked before the model check, which would
-  // otherwise let a fork through on a `model:` that has no effect.
+  // for subagent_type "fork", so a `model:` on a fork looks compliant and isn't.
+  // Checked first, before any path that could allow the spawn.
   if (type.toLowerCase() === "fork") {
     deny(
       "Delegation policy: a fork always inherits the session model — the Agent tool " +
         "ignores `model` for subagent_type: fork, so a fork on a Fable/Opus session is a " +
-        "frontier-model subagent. Use a house type — implementor/finder/scout (sonnet), " +
-        "verifier/architect/documentarian (opus) — and pass the context the worker needs in its prompt.",
+        "frontier-model subagent. Use a house type and pass the context the worker needs " +
+        "in its prompt. " +
+        HOUSE,
     );
   }
-  if (PINNED_TYPES.has(type)) process.exit(0); // model pinned by the agent definition
-  if (model) process.exit(0); // explicit non-Fable model
+
+  // An explicit model on the call overrides the definition's model, so it is
+  // checked on its own terms. Allowlist: unknown tiers deny.
+  if (model && !modelApproved(model)) {
+    deny(
+      FRONTIER.test(model)
+        ? `Delegation policy: never spawn a frontier subagent (model: ${model}) — that tier is ` +
+            "the orchestrator's, and it costs 2-3x a worker tier for work a worker should do. " +
+            HOUSE
+        : `Delegation policy: model "${model}" is not an approved worker tier. Approved: ` +
+            "sonnet | opus | haiku, or a version-pinned ID of one (e.g. claude-sonnet-5). " +
+            "This guard fails closed — an unrecognized tier is denied rather than allowed. " +
+            HOUSE,
+    );
+  }
+
+  const found = type ? findAgentDefinition(type, cwd) : null;
+
+  if (found) {
+    const defModel = (found.fm.model || "").toLowerCase();
+    const defEffort = (found.fm.effort || "").toLowerCase();
+
+    // `model:` on the call overrides the definition, so only validate the
+    // definition's model when the call did not supply one.
+    if (!model) {
+      if (!defModel) {
+        deny(
+          `Delegation policy: agent "${type}" declares no \`model:\`, so it would inherit the ` +
+            `session model. Add one to ${found.path} (sonnet | opus | haiku), or pass ` +
+            "`model:` explicitly on this Agent call.",
+        );
+      }
+      if (!modelApproved(defModel)) {
+        deny(
+          FRONTIER.test(defModel)
+            ? `Delegation policy: agent "${type}" pins \`model: ${defModel}\` — a frontier tier, ` +
+                `which is the orchestrator's, not a worker's. Fix ${found.path}.`
+            : `Delegation policy: agent "${type}" pins \`model: ${defModel}\`, which is not an ` +
+                "approved worker tier (sonnet | opus | haiku, or a version-pinned ID of one). " +
+                `Fix ${found.path}. This guard fails closed on unrecognized tiers.`,
+        );
+      }
+    }
+
+    // Effort has no call-time parameter, so the definition is the only place it
+    // can be pinned — and therefore the only place it can be enforced.
+    if (!defEffort) {
+      deny(
+        `Delegation policy: agent "${type}" declares no \`effort:\`, so it would inherit the ` +
+          "session effort — a sonnet worker doing mechanical work at xhigh. Add one to " +
+          `${found.path} (low | medium | high | xhigh | max). Effort is not a parameter on ` +
+          "the Agent tool, so the definition is the only place this can be pinned.",
+      );
+    }
+    if (!EFFORTS.has(defEffort)) {
+      deny(
+        `Delegation policy: agent "${type}" pins \`effort: ${defEffort}\`, which is not a valid ` +
+          `level. Use low | medium | high | xhigh | max in ${found.path}.`,
+      );
+    }
+
+    process.exit(0); // definition validated on both axes
+  }
+
+  // No definition file: built-in types (Explore, Plan, general-purpose) and
+  // plugin agents. Allowed only on an explicit approved model — already
+  // allowlist-checked above. Effort still inherits; see the header note.
+  if (model) process.exit(0);
 
   deny(
-    `Delegation policy: this spawn (${type || "no subagent_type"}) would inherit the session model. ` +
-      "Either use a house agent type — implementor/finder/scout (sonnet), verifier/architect/documentarian (opus) — " +
-      "or pass model: sonnet | opus | haiku explicitly on the Agent call.",
+    `Delegation policy: this spawn (${type || "no subagent_type"}) would inherit the session ` +
+      "model and effort. Either use a house agent type — which pins both in its definition — " +
+      "or pass model: sonnet | opus | haiku explicitly on the Agent call. " +
+      HOUSE,
   );
+});
+```
+
+### `~/.claude/hooks/git-destruction-guard.mjs`
+
+```javascript
+#!/usr/bin/env node
+/**
+ * PreToolUse guard for Bash: deny working-tree-destroying git commands unless
+ * they are provably scoped to a mission worktree or scratch space.
+ *
+ * Origin (2026-07-23, sartora #288): a code-review finder subagent hit the
+ * MAIN checkout's dirty tree — another session's uncommitted work — and
+ * "fixed" it with `git reset --hard && git clean -fd`, destroying 19 files.
+ * With multiple sessions per machine, the main checkout must be treated as
+ * potentially holding someone else's live work at all times. Prose rules
+ * didn't stop it; this hook does.
+ *
+ * Allowed automatically: destructive git inside `.claude/worktrees/`,
+ * `/tmp`, `/private/tmp`, or a `scratchpad` path (throwaway by contract),
+ * judged per git invocation via `-C <path>` or, absent -C, the call's cwd.
+ * Everything else destructive → deny with guidance. The operator can always
+ * run the command themselves in a terminal.
+ */
+
+const DESTRUCTIVE = [
+  /\breset\s+(?:\S+\s+)*--(?:hard|merge)\b/,      // git reset --hard / --merge
+  /\bclean\b[^&|;]*\s(?:-[a-zA-Z]*f|--force\b)/,  // git clean -f / -fd / --force …
+  /\bcheckout\s+(?:\S+\s+)*(?:--\s+)?\.(?:\s|$)/, // git checkout [--] .
+  /\bcheckout\s+(?:\S+\s+)*-f\b/,                 // git checkout -f
+  /\bcheckout\s+(?:\S+\s+)*--\s+\S/,              // git checkout <ref> -- <path> (clobbers path)
+  /\bstash\s+(?:drop|clear)\b/,                   // git stash drop/clear
+];
+
+// `git restore` discards worktree changes unless it is a pure staged (index-only)
+// call. Recognize both the long and short spellings of both flags: --staged/-S is
+// index-only (safe); --worktree/-W (or the default, no flag) touches the worktree.
+const RESTORE = /\brestore\b/;
+const RESTORE_STAGED = /(?:^|\s)(?:--staged|-S)(?=\s|$)/;
+const RESTORE_WORKTREE = /(?:^|\s)(?:--worktree|-W)(?=\s|$)/;
+const restoreIsDestructive = (s) =>
+  RESTORE.test(s) && !(RESTORE_STAGED.test(s) && !RESTORE_WORKTREE.test(s));
+
+const SAFE_PATH = /(\.claude\/worktrees\/|^\/tmp\/|^\/private\/tmp\/|\/scratchpad(\/|$))/;
+
+const chunks = [];
+process.stdin.on("data", (c) => chunks.push(c));
+process.stdin.on("end", () => {
+  let input = {};
+  try {
+    input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    process.exit(0);
+  }
+  if (input.tool_name !== "Bash") process.exit(0);
+  const command = String(input.tool_input?.command || "");
+  if (!/\bgit\b/.test(command)) process.exit(0);
+
+  const cwd = String(input.cwd || "");
+  const cwdSafe = SAFE_PATH.test(cwd + "/");
+
+  // Examine each `git …` invocation within the (possibly compound) command.
+  // Conservative: one unsafely-scoped destructive invocation denies the call.
+  const gitCalls = command.split(/(?:&&|\|\||;|\|)/).filter((s) => /\bgit\b/.test(s));
+  for (const seg of gitCalls) {
+    // Test destructiveness against a quote-stripped copy so a destructive verb
+    // that only appears INSIDE a string literal — `echo "git reset --hard"`,
+    // `git log --grep="git clean -fd"`, writing docs that mention the command —
+    // is not mistaken for a real invocation. Real destructive git never quotes
+    // its subcommand/flags. Path args (e.g. `-C "…"`) stay on the original seg.
+    const scrubbed = seg.replace(/"[^"]*"/g, " ").replace(/'[^']*'/g, " ");
+    const destructive =
+      DESTRUCTIVE.some((re) => re.test(scrubbed)) || restoreIsDestructive(scrubbed);
+    if (!destructive) continue;
+
+    const cFlag = seg.match(/-C\s+("[^"]+"|'[^']+'|\S+)/);
+    const target = cFlag ? cFlag[1].replace(/^["']|["']$/g, "") : null;
+    const scopedSafe = target ? SAFE_PATH.test(target + "/") : cwdSafe;
+    if (scopedSafe) continue;
+
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason:
+            "git-destruction-guard: this command would destroy working-tree state outside a " +
+            "mission worktree or scratch path. The main checkout may hold ANOTHER session's " +
+            "uncommitted work (a review agent once wiped 19 files this way). If you hit dirty " +
+            "tree state, REPORT it — never clear it. Destructive git is allowed only under " +
+            ".claude/worktrees/, /tmp, or a scratchpad path (use `git -C <worktree> …`). " +
+            "If this must run against the main checkout, the operator runs it by hand.",
+        },
+      }),
+    );
+    process.exit(0);
+  }
+  process.exit(0);
 });
 ```
 
@@ -408,13 +681,31 @@ The contract:
 4. **Verify adversarially.** `finder` fleets for coverage, `verifier` agents
    for judgment, or the repo's review workflow if it has one. Work the
    findings, not the score.
-5. **Never spawn a Fable subagent, never let a spawn inherit the session
-   model.** The house types are pinned (scout/finder/implementor → sonnet,
-   architect/verifier → opus); raw Agent calls must pass `model:` explicitly.
-6. **Inline work is the exception**: trivial edits, spec-writing, judgment
-   calls, and integration/merge decisions. If you catch yourself implementing
-   a multi-file package inline, stop and delegate it.
-7. **Externalize state.** Long programs end each phase by writing state
+5. **Never spawn a frontier subagent, never let a spawn inherit the session
+   model or effort.** The house types pin both — scout/finder/implementor
+   (sonnet, medium), architect (opus, xhigh), verifier/documentarian (opus,
+   high). Raw Agent calls must pass `model:` explicitly. The guard reads each
+   agent's own definition and denies a spawn whose file is missing either pin,
+   so if you add an agent, pin both in its frontmatter.
+6. **Inline work is the exception** — the ceiling. Trivial edits, spec-writing,
+   judgment calls, and integration/merge decisions stay here. If you catch
+   yourself implementing a multi-file package inline, stop and delegate it.
+7. **Delegation has a floor too.** Subagents multiply cost and latency: each one
+   re-establishes context, re-explores, reports back, and then you re-read the
+   report. This model delegates readily by default — the previous generation
+   under-reached and needed pushing, this one needs a cap — so:
+   - Don't delegate what you would finish in a handful of tool calls. A few
+     file reads, a handful of edits, one search: do it yourself.
+   - Don't fan several subagents at one modest job. Parallel agents are for
+     genuinely independent tracks, not for splitting one small task into pieces.
+   - Keep spawn counts low; never exceed ~20 parallel agents unless the
+     operator asks for it.
+   - Commit to a delegation. Don't re-derive a subagent's findings once it
+     reports, and don't redo its work.
+   - Verification belongs in the finder/verifier gate, not in ad-hoc
+     self-checks bolted onto every step. This model already verifies its own
+     work; telling it to verify again mostly buys over-verification.
+8. **Externalize state.** Long programs end each phase by writing state
    somewhere durable (issue, plan doc, tracker) so a fresh session can resume
    from the artifact, not from this conversation's context.
 
@@ -432,9 +723,9 @@ Task: $ARGUMENTS
 cat <<'EOF'
 [session-protocol] Standing ritual — open the session by surfacing this to the operator in 3-4 short lines (then proceed normally):
 1. Orchestrator tier: /model fable (ambiguous, novel, multi-stream) or /model opus (well-specified, single-stream). Ask which if a real build is starting and none was chosen.
-2. Unit of work: /mission <issue# or goal> provisions a fresh worktree (one mission = one issue = one worktree = one session); /mission end decommissions. The main checkout is integration ground only.
-3. Build contract: /orchestrate <goal> — scout recon → architect specs → parallel implementors → finder/verifier pass → the repo's PR gate. The orchestrator never types out multi-file packages inline.
-Workers are pinned (scout/finder/implementor = sonnet; architect/verifier/documentarian = opus); raw Agent spawns must pass model explicitly; Fable subagents are denied by hook. Small conversational work needs none of this — plain prompting is fine.
+2. Unit of work: /mission <issue# or goal> provisions a fresh worktree (one mission = one issue = one branch family = one session; more than one worktree is fine for independent streams); /mission end decommissions every one of them. The main checkout is integration ground only.
+3. Build contract: /orchestrate <goal> — scout recon → architect specs → parallel implementors → finder/verifier pass → the repo's PR gate. The orchestrator never types out multi-file packages inline, and equally never delegates what it would finish in a handful of tool calls.
+Workers pin model AND effort (scout/finder/implementor = sonnet+medium; architect = opus+xhigh; verifier/documentarian = opus+high); raw Agent spawns must pass model explicitly; the hook reads each agent's own definition and denies anything missing either pin, plus any frontier or unrecognized tier. Small conversational work needs none of this — plain prompting is fine.
 EOF
 ```
 
@@ -457,6 +748,15 @@ append to existing `PreToolUse` / `SessionStart` arrays):
             "command": "node \"$HOME/.claude/hooks/agent-model-guard.mjs\""
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$HOME/.claude/hooks/git-destruction-guard.mjs\""
+          }
+        ]
       }
     ],
     "SessionStart": [
@@ -474,18 +774,30 @@ append to existing `PreToolUse` / `SessionStart` arrays):
 }
 ```
 
-For a **repo-level** install, the command uses the project path instead:
-`node "${CLAUDE_PROJECT_DIR:-$PWD}/.claude/hooks/agent-model-guard.mjs"`.
+For a **repo-level** install, the commands use the project path instead:
+`node "${CLAUDE_PROJECT_DIR:-$PWD}/.claude/hooks/agent-model-guard.mjs"` and
+`node "${CLAUDE_PROJECT_DIR:-$PWD}/.claude/hooks/git-destruction-guard.mjs"`.
 
-## Part 3 — doctrine (append to `~/.claude/CLAUDE.md`)
+## Part 3 — doctrine (write to `~/.claude/rules/claude-infra-delegation.md`)
 
 ```markdown
+<!--
+  Installed by claude-infra to ~/.claude/rules/claude-infra-delegation.md.
+  This file is OWNED BY THE INSTALLER and overwritten wholesale on every
+  ./install.sh — do not hand-edit the installed copy; edit it here and re-run.
+
+  Deliberately carries NO `paths:` frontmatter. A rule with `paths:` loads
+  on-demand for matching files; this one must load at session launch, for every
+  project, which is what a bare rules file does.
+-->
+
 ## Delegation & session modes
 
 - I pick the orchestrator tier at session start via `/model`: **Fable** for ambiguous, novel, or multi-stream programs; **Opus** for well-specified single-stream work. Either way the main session designs, specs, judges, and coordinates — it does not type out large mechanical work packages inline.
-- Subagents **never inherit the session model**. Delegate through the pinned agent types in `~/.claude/agents/` — `scout`/`finder`/`implementor` (sonnet), `architect`/`verifier` (opus) — or pass `model:` explicitly on raw Agent calls (`sonnet` mechanical, `opus` judgment, `haiku` trivial). Never spawn a Fable subagent. A PreToolUse hook enforces this.
-- `/orchestrate <goal>` invokes the full contract: scout recon → architect specs → parallel implementors → finder/verifier pass → the repo's PR gate. Use it for any multi-package build.
-- `/mission <issue#>` / `/mission end` runs the worktree lifecycle: one mission = one kickoff issue = one worktree = one branch family = one session. The main checkout is the integration ground — feature commits never happen there.
+- Subagents **never inherit the session model or the session effort**. Delegate through the pinned agent types in `~/.claude/agents/` — `scout`/`finder`/`implementor` (sonnet, medium), `architect` (opus, xhigh), `verifier`/`documentarian` (opus, high) — or pass `model:` explicitly on raw Agent calls (`sonnet` mechanical, `opus` judgment, `haiku` trivial). Never spawn a frontier subagent. A PreToolUse hook enforces this by reading each agent's own definition, so a new agent needs both pins in its frontmatter or its spawns are denied.
+- **Why both pins, and why mechanically.** Not mainly cost — the spread is ~1.7x (opus→sonnet) to ~3.3x (fable→sonnet), real but not an order of magnitude. The durable reasons are *predictability*, since a run whose tiers are pinned is reproducible and comparable across sessions, and *rate-limit separation*, since the frontier and worker tiers draw from different buckets and pinned workers therefore don't contend with the orchestrator's own turns. Effort matters at least as much as model: near the top of the ladder it can move more tokens than a tier change does, and it is the one axis no hook can observe at spawn time — which is why the definition has to declare it.
+- `/orchestrate <goal>` invokes the full contract: scout recon → architect specs → parallel implementors → finder/verifier pass → the repo's PR gate. Use it for any multi-package build. It carries a floor as well as a ceiling: don't delegate what you'd finish in a handful of tool calls, and keep spawn counts low.
+- `/mission <issue#>` / `/mission end` runs the worktree lifecycle: one mission = one kickoff issue = one branch family = one session. A mission may hold more than one worktree when its streams are genuinely independent; a worktree is never reused across missions. The main checkout is the integration ground — feature commits never happen there.
 ```
 
 ## Part 4 — verification
