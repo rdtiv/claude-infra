@@ -56,6 +56,9 @@ folded into the repo-level copies of the agent bodies and the mission command.
 - Built-in agent types (Explore, Plan, general-purpose) and plugin agents get
   **denied until the orchestrator passes `model:` explicitly** — intentional
   friction, one corrective round-trip.
+- `subagent_type: fork` is **denied unconditionally**: the Agent tool ignores
+  `model` for forks, so a fork always runs on the session model. Passing
+  `model:` on a fork looks compliant and isn't — hence the hard deny.
 - In repos with the repo-level hook, both hooks fire; duplicate denies are
   harmless.
 - Workflow-internal `agent()` calls bypass PreToolUse — pin models inside

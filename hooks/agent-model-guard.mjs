@@ -50,6 +50,17 @@ process.stdin.on("end", () => {
         "or pass model: sonnet | opus | haiku explicitly.",
     );
   }
+  // A fork always runs on the parent's model — the Agent tool ignores `model`
+  // for subagent_type "fork". Checked before the model check, which would
+  // otherwise let a fork through on a `model:` that has no effect.
+  if (type.toLowerCase() === "fork") {
+    deny(
+      "Delegation policy: a fork always inherits the session model — the Agent tool " +
+        "ignores `model` for subagent_type: fork, so a fork on a Fable/Opus session is a " +
+        "frontier-model subagent. Use a house type — implementor/finder/scout (sonnet), " +
+        "verifier/architect/documentarian (opus) — and pass the context the worker needs in its prompt.",
+    );
+  }
   if (PINNED_TYPES.has(type)) process.exit(0); // model pinned by the agent definition
   if (model) process.exit(0); // explicit non-Fable model
 

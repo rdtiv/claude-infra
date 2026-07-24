@@ -222,10 +222,10 @@ Read-only on source: never edit code. Your output is the spec document.
 #!/usr/bin/env node
 /**
  * PreToolUse guard for the Agent tool: subagents must never silently inherit
- * the session model (delegation policy — the orchestrator is Fable or
+ * the session model (the delegation policy — the orchestrator is Fable or
  * Opus; workers are pinned). A spawn is allowed when it either uses one of
- * the house agent types (which pin their model in agents/*.md frontmatter)
- * or passes an explicit non-Fable `model`.
+ * the house agent types (which pin their model in .claude/agents/*.md
+ * frontmatter) or passes an explicit non-Fable `model`.
  */
 const PINNED_TYPES = new Set([
   "implementor", // sonnet — executes a work-package spec
@@ -233,6 +233,7 @@ const PINNED_TYPES = new Set([
   "verifier",    // opus   — adversarial verify one candidate
   "scout",       // sonnet — read-only recon
   "architect",   // opus   — work-package specs
+  "documentarian", // opus — mission-end docs gate
 ]);
 
 const chunks = [];
@@ -266,8 +267,19 @@ process.stdin.on("end", () => {
   if (model === "fable") {
     deny(
       "Delegation policy: never spawn a Fable subagent — Fable is the orchestrator tier. " +
-        "Use subagent_type implementor/finder/scout (sonnet) or verifier/architect (opus), " +
+        "Use subagent_type implementor/finder/scout (sonnet) or verifier/architect/documentarian (opus), " +
         "or pass model: sonnet | opus | haiku explicitly.",
+    );
+  }
+  // A fork always runs on the parent's model — the Agent tool ignores `model`
+  // for subagent_type "fork". Checked before the model check, which would
+  // otherwise let a fork through on a `model:` that has no effect.
+  if (type.toLowerCase() === "fork") {
+    deny(
+      "Delegation policy: a fork always inherits the session model — the Agent tool " +
+        "ignores `model` for subagent_type: fork, so a fork on a Fable/Opus session is a " +
+        "frontier-model subagent. Use a house type — implementor/finder/scout (sonnet), " +
+        "verifier/architect/documentarian (opus) — and pass the context the worker needs in its prompt.",
     );
   }
   if (PINNED_TYPES.has(type)) process.exit(0); // model pinned by the agent definition
@@ -275,7 +287,7 @@ process.stdin.on("end", () => {
 
   deny(
     `Delegation policy: this spawn (${type || "no subagent_type"}) would inherit the session model. ` +
-      "Either use a house agent type — implementor/finder/scout (sonnet), verifier/architect (opus) — " +
+      "Either use a house agent type — implementor/finder/scout (sonnet), verifier/architect/documentarian (opus) — " +
       "or pass model: sonnet | opus | haiku explicitly on the Agent call.",
   );
 });
