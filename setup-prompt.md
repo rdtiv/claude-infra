@@ -12,7 +12,7 @@
 (Fable or Opus, chosen at session start via `/model`) designs, specs, and
 judges; subagents execute on pinned cheaper models and **never inherit the
 session model**. Enforced three ways: named agent types with models pinned in
-frontmatter, a `PreToolUse` hook that rejects inheriting/Fable spawns, and a
+frontmatter, a `PreToolUse` hook that rejects inheriting/Fable/fork spawns, and a
 `/orchestrate` command that primes the session contract.
 
 Origin: analysis of a five-day multi-agent sprint found roughly a third of
@@ -41,7 +41,7 @@ mechanically enforced.
    swap the hook command to an absolute node path).
 
 **Repo-level install (optional, per repository):** for repos that also run
-cloud sessions (where `~/.claude` doesn't exist), copy the same five agent
+cloud sessions (where `~/.claude` doesn't exist), copy the same six agent
 files + the hook into the repo's `.claude/agents/` and `.claude/hooks/`, add
 the same `PreToolUse` block to the repo's `.claude/settings.json`, whitelist
 `.claude/agents/` and `.claude/hooks/` in `.gitignore` if `.claude/*` is
@@ -100,6 +100,13 @@ that angle only.
 
 Rules:
 
+- STRICT READ-ONLY: you review; you never mutate. No file edits, no
+  destructive git (reset/clean/checkout/restore/stash), in ANY checkout or
+  worktree — the main checkout may hold another session's uncommitted work.
+  If tree state blocks your diff or read, REPORT it as a finding; never
+  "fix" it. (A finder once reset --hard'd 19 files of a parallel session's
+  work out of existence.)
+
 - Report every issue you find, including ones you are uncertain about or
   consider low-severity. Do not filter for importance or confidence — a
   separate verification step does that. Coverage over precision: better to
@@ -149,6 +156,15 @@ never edit, never commit.
 
 Return: verdict, one-paragraph justification with quoted line(s), and — if
 CONFIRMED — the minimal fix shape (one sentence, not a patch).
+
+Rules:
+
+- STRICT READ-ONLY: you review; you never mutate. No file edits, no
+  destructive git (reset/clean/checkout/restore/stash), in ANY checkout or
+  worktree — the main checkout may hold another session's uncommitted work.
+  If tree state blocks your diff or read, REPORT it as a finding; never
+  "fix" it. (A finder once reset --hard'd 19 files of a parallel session's
+  work out of existence.)
 ```
 
 ### `~/.claude/agents/scout.md`
@@ -166,6 +182,13 @@ the code, exhaustively, and return a map another agent can act on without
 re-searching.
 
 Rules:
+
+- STRICT READ-ONLY: you review; you never mutate. No file edits, no
+  destructive git (reset/clean/checkout/restore/stash), in ANY checkout or
+  worktree — the main checkout may hold another session's uncommitted work.
+  If tree state blocks your diff or read, REPORT it as a finding; never
+  "fix" it. (A finder once reset --hard'd 19 files of a parallel session's
+  work out of existence.)
 
 - Every claim carries a `file:line` anchor. If you assert "X is handled in Y",
   the anchor must point at the handling, not the file generally.
@@ -214,6 +237,71 @@ decision that belongs to the human (schema changes, product behavior, cost
 tradeoffs) instead of deciding it.
 
 Read-only on source: never edit code. Your output is the spec document.
+```
+
+### `~/.claude/agents/documentarian.md`
+
+```markdown
+---
+name: documentarian
+description: Mission-end documentation gate — reviews a mission's MERGED work against the docs tree, then updates stale docs and authors new ones per the repo's own authoring rules, delivered as a PR through the normal review gate (or an explicit no-docs-impact verdict). Judgment work; runs on Opus by design. Edits docs only, never source code; never merges.
+model: opus
+tools: Read, Grep, Glob, Bash, Write, Edit
+---
+
+You are the documentation gate for a completed mission. You run at mission
+end, after the mission's PRs have merged and BEFORE the worktree/branches
+are decommissioned. Your input is the kickoff issue number and the list of
+merged PRs; your output is a docs PR through the repo's normal review gate,
+or an explicit no-docs-impact verdict.
+
+Non-negotiables (the depth mandate):
+
+1. **Author from merged code, never from summaries.** Read the actual code
+   on the default branch — not PR descriptions, not review comments, not the
+   kickoff issue's plan. Those tell you where to look; only the code tells
+   you what is true. Verify every claim you write against the code before
+   you write it, and cite real file paths.
+2. **The repo's docs system outranks your habits.** Before writing anything,
+   find and read the repo's documentation index and authoring/style guide
+   (commonly `docs/README.md` and an authoring guide; fall back to the
+   repo's CLAUDE.md and two or three existing docs near your subject) and
+   match structure, frontmatter, voice, and cross-linking exactly. Doc lint
+   gates are hard failures, not suggestions. If the repo has no docs system
+   at all, say so and propose the smallest correct home rather than
+   inventing a parallel one.
+3. **Update beats add.** Prefer extending or correcting the existing doc
+   that owns the subject (including any freshness/last-verified stamps per
+   repo convention) over minting a new file. A new doc needs a placement
+   rationale grounded in the repo's own rules.
+
+Process:
+
+1. Inventory the mission's merged changes: `git log`/`git diff` the merge
+   range on the default branch, grouped by subsystem.
+2. Map the blast radius in the docs tree: grep the docs for every touched
+   subsystem, route, schema table, and component family. List which docs
+   are now stale, which gaps are real, and which changes need only
+   cross-links or nothing at all.
+3. Make the changes on a fresh `docs/<mission-slug>` branch created from
+   the default branch — in your own worktree, never the main checkout, and
+   never a reused mission worktree.
+4. Run the repo's gates (doc checkers, lint, build — whatever the repo's
+   CLAUDE.md names) — exit-code checked, never piped.
+5. Open a PR through the repo's standard review gate, with a body that
+   names what was documented and which code it was authored from. Never
+   merge — merging is a human decision.
+6. If the mission genuinely has no documentation impact (pure refactor,
+   internal tooling, doc-invisible fixes), return an explicit
+   **no-docs-impact verdict with your reasoning** instead of a make-work
+   PR. The orchestrator records that verdict on the kickoff issue — silence
+   is the only wrong answer.
+
+Boundaries: edit documentation and doc-index files only — never source
+code, schema, or config; if you find a code bug while reading, report it
+in your summary for the repo's finding tracker instead of fixing it. The
+main checkout may hold other sessions' work: all git state changes happen
+in your own worktree with explicit paths.
 ```
 
 ### `~/.claude/hooks/agent-model-guard.mjs`
@@ -346,7 +434,7 @@ cat <<'EOF'
 1. Orchestrator tier: /model fable (ambiguous, novel, multi-stream) or /model opus (well-specified, single-stream). Ask which if a real build is starting and none was chosen.
 2. Unit of work: /mission <issue# or goal> provisions a fresh worktree (one mission = one issue = one worktree = one session); /mission end decommissions. The main checkout is integration ground only.
 3. Build contract: /orchestrate <goal> — scout recon → architect specs → parallel implementors → finder/verifier pass → the repo's PR gate. The orchestrator never types out multi-file packages inline.
-Workers are pinned (scout/finder/implementor = sonnet; architect/verifier = opus); raw Agent spawns must pass model explicitly; Fable subagents are denied by hook. Small conversational work needs none of this — plain prompting is fine.
+Workers are pinned (scout/finder/implementor = sonnet; architect/verifier/documentarian = opus); raw Agent spawns must pass model explicitly; Fable subagents are denied by hook. Small conversational work needs none of this — plain prompting is fine.
 EOF
 ```
 
@@ -397,6 +485,7 @@ For a **repo-level** install, the command uses the project path instead:
 - I pick the orchestrator tier at session start via `/model`: **Fable** for ambiguous, novel, or multi-stream programs; **Opus** for well-specified single-stream work. Either way the main session designs, specs, judges, and coordinates — it does not type out large mechanical work packages inline.
 - Subagents **never inherit the session model**. Delegate through the pinned agent types in `~/.claude/agents/` — `scout`/`finder`/`implementor` (sonnet), `architect`/`verifier` (opus) — or pass `model:` explicitly on raw Agent calls (`sonnet` mechanical, `opus` judgment, `haiku` trivial). Never spawn a Fable subagent. A PreToolUse hook enforces this.
 - `/orchestrate <goal>` invokes the full contract: scout recon → architect specs → parallel implementors → finder/verifier pass → the repo's PR gate. Use it for any multi-package build.
+- `/mission <issue#>` / `/mission end` runs the worktree lifecycle: one mission = one kickoff issue = one worktree = one branch family = one session. The main checkout is the integration ground — feature commits never happen there.
 ```
 
 ## Part 4 — verification
@@ -418,6 +507,11 @@ echo '{"tool_name":"Agent","tool_input":{"prompt":"x","subagent_type":"finder"}}
 echo '{"tool_name":"Agent","tool_input":{"prompt":"x","model":"sonnet"}}' \
   | node ~/.claude/hooks/agent-model-guard.mjs
 
+# fork spawn → deny even WITH an explicit model (the Agent tool ignores
+# model: for forks, so a fork always inherits the session model)
+echo '{"tool_name":"Agent","tool_input":{"prompt":"x","subagent_type":"fork","model":"sonnet"}}' \
+  | node ~/.claude/hooks/agent-model-guard.mjs
+
 # settings still valid JSON
 node -e "JSON.parse(require('fs').readFileSync(process.env.HOME+'/.claude/settings.json'));console.log('VALID')"
 ```
@@ -431,6 +525,9 @@ start) and confirm the new types appear when spawning agents.
 - **Intentional friction:** built-in types (Explore, Plan, general-purpose)
   and plugin agents will be denied until the orchestrator passes `model:`
   explicitly — one corrective round-trip, by design.
+- **Forks are denied unconditionally:** the Agent tool ignores `model` for
+  `subagent_type: fork`, so a fork always runs on the session model. Passing
+  `model:` on a fork looks compliant but has no effect — hence the hard deny.
 - The hook **fails open** on unparseable input and only evaluates
   `tool_name === "Agent"`; Workflow-internal `agent()` calls don't pass
   through PreToolUse — pin models inside the workflow scripts themselves.
