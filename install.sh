@@ -40,27 +40,23 @@ if grep -q "^## Delegation & session modes" "$HOME/.claude/CLAUDE.md" 2>/dev/nul
 WARN
 fi
 
-# Verify
-node --check "$HOME/.claude/hooks/agent-model-guard.mjs"
-echo '{"tool_name":"Agent","tool_input":{"prompt":"x"}}' \
-  | node "$HOME/.claude/hooks/agent-model-guard.mjs" | grep -q '"deny"' \
-  && echo "hook verify: deny-on-inherit OK"
-echo '{"tool_name":"Agent","tool_input":{"prompt":"x","subagent_type":"finder"}}' \
-  | node "$HOME/.claude/hooks/agent-model-guard.mjs" | grep -q . \
-  && { echo "hook verify: FAILED — pinned type was denied"; exit 1; } \
-  || echo "hook verify: allow-pinned-type OK"
-
-node --check "$HOME/.claude/hooks/git-destruction-guard.mjs"
-echo '{"tool_name":"Bash","cwd":"/repo","tool_input":{"command":"git clean --force -d"}}' \
-  | node "$HOME/.claude/hooks/git-destruction-guard.mjs" | grep -q '"deny"' \
-  && echo "git-guard verify: deny-destructive-in-main OK" \
-  || { echo "git-guard verify: FAILED — destructive git not denied"; exit 1; }
-echo '{"tool_name":"Bash","cwd":"/repo","tool_input":{"command":"git status"}}' \
-  | node "$HOME/.claude/hooks/git-destruction-guard.mjs" | grep -q . \
-  && { echo "git-guard verify: FAILED — safe git was denied"; exit 1; } \
-  || echo "git-guard verify: allow-safe-git OK"
-
+# Post-install sanity: did the copy actually land, and is settings.json still valid?
+for f in "$HOME/.claude/hooks/agent-model-guard.mjs" \
+         "$HOME/.claude/hooks/git-destruction-guard.mjs" \
+         "$HOME/.claude/rules/claude-infra-delegation.md"; do
+  [ -f "$f" ] || { echo "install: FAILED — $f missing after copy"; exit 1; }
+done
 node -e "JSON.parse(require('fs').readFileSync(process.env.HOME+'/.claude/settings.json'));console.log('settings.json valid')"
+
+# Behavior is verified by the suite, against the source tree. Skipped when the
+# suite is what invoked us — verify.sh runs install.sh against scratch HOMEs, and
+# without this guard that would recurse.
+if [ -z "${CLAUDE_INFRA_SKIP_VERIFY:-}" ]; then
+  echo
+  bash "$DIR/verify.sh"
+fi
 
 echo
 echo "Done. Restart Claude Code sessions to pick up the agent types and commands."
+echo "Note: the guard now requires every house agent to pin model AND effort, so"
+echo "hooks and agents must move together — always re-run this after a git pull."
