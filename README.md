@@ -25,7 +25,7 @@ session and say "execute this".
 
 | Path | What |
 |---|---|
-| `~/.claude/agents/` | Five pinned roles: `scout`/`finder`/`implementor` (sonnet), `architect`/`verifier` (opus) |
+| `~/.claude/agents/` | Six pinned roles: `scout`/`finder`/`implementor` (sonnet), `architect`/`verifier`/`documentarian` (opus) |
 | `~/.claude/hooks/agent-model-guard.mjs` | PreToolUse guard: denies Agent spawns that would inherit the session model or that name Fable |
 | `~/.claude/hooks/git-destruction-guard.mjs` | PreToolUse guard: denies working-tree-destroying git (`reset --hard`, `clean -f`, `checkout .`, `restore`, `stash drop`) outside `.claude/worktrees/` and scratch paths — the main checkout may hold another session's uncommitted work |
 | `~/.claude/hooks/session-protocol.sh` | SessionStart hook: injects the standing ritual so every session opens by surfacing the protocol (model tier → /mission → /orchestrate) |

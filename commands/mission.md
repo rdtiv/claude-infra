@@ -37,14 +37,19 @@ Decommission checklist — a mission is not done until all of these:
 
 1. All mission PRs merged (by the operator) or explicitly parked with an issue comment
    saying what remains and why.
-2. The kickoff issue is closed or updated with the punch list; review
+2. **Documentation gate**: launch the pinned `documentarian` agent over the
+   mission's merged work (give it the kickoff issue number and the merged PR
+   list). The mission is not documented until its docs PR has landed through
+   the repo's review gate, or the agent's explicit no-docs-impact verdict is
+   recorded on the kickoff issue. Do not decommission ahead of this gate.
+3. The kickoff issue is closed or updated with the punch list; review
    findings dispositioned wherever the repo tracks them.
-3. Verify nothing unmerged: worktree `git status --short` is clean AND
+4. Verify nothing unmerged: worktree `git status --short` is clean AND
    `git diff <default> <branch>` for source files is empty (squash merges
    break ancestry — always tree-diff, never trust `branch --merged`).
-4. Remove the worktree, delete the local branch, and delete the remote
+5. Remove the worktree, delete the local branch, and delete the remote
    branch only after the whole stack is in.
-5. Report the decommission in your final summary: worktree removed, branches
+6. Report the decommission in your final summary: worktree removed, branches
    deleted, state externalized where.
 
 ## Standing rules (both directions)
