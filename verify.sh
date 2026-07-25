@@ -167,23 +167,27 @@ fi
 
 section "deletion is complete (orchestrate.md, session-protocol.sh)"
 # commands/orchestrate.md and hooks/session-protocol.sh were deleted upstream;
-# their contract folded into commands/mission.md. Nothing under commands/,
-# hooks/, settings/, or README.md should still name them — setup-prompt.md is
-# generated and is covered by the generation check above, not here.
+# their contract folded into commands/mission.md.
+#
+# Scoped to what actually loads into a session — commands/, hooks/, settings/.
+# A stale name in those is an operative bug: doctrine referring a live session to
+# something that no longer exists. Two categories are deliberately outside it:
+#
+#   settings/merge-hook.mjs — IS the retirement mechanism, and must keep the
+#     "session-protocol" marker to strip the stale settings.json entry each run.
+#   README.md, install.sh   — have to NAME retired artifacts to tell an operator
+#     what an update removes. Prose about a deletion is not a dangling reference.
+#
+# setup-prompt.md is generated and covered by the generation check above.
 hit=0
 while IFS= read -r -d '' f; do
-  # settings/merge-hook.mjs is exempt: it IS the retirement mechanism and must
-  # keep the "session-protocol" marker string to strip the stale settings.json
-  # entry on every run (see its own header comment). Mirrors install.sh, which
-  # is outside these directories for the same reason.
   [ "$f" = "$DIR/settings/merge-hook.mjs" ] && continue
   if grep -qiE 'orchestrate|session-protocol' "$f"; then
     bad "deletion incomplete — $f still mentions orchestrate/session-protocol"
     hit=1
   fi
-done < <(find "$DIR/commands" "$DIR/hooks" "$DIR/settings" -type f -print0 2>/dev/null
-          [ -f "$DIR/README.md" ] && printf '%s\0' "$DIR/README.md")
-[ "$hit" -eq 0 ] && ok "no surviving orchestrate/session-protocol references"
+done < <(find "$DIR/commands" "$DIR/hooks" "$DIR/settings" -type f -print0 2>/dev/null)
+[ "$hit" -eq 0 ] && ok "no surviving orchestrate/session-protocol references in loaded doctrine"
 
 section "tier-conditional delegation (mission.md)"
 if grep -q 'Delegation, on Opus' "$DIR/commands/mission.md" \
