@@ -134,24 +134,30 @@ Decommission checklist — a mission is not done until all of these:
      merges, it reports that difference too, and you cannot tell "my work never
      landed" from "someone else's did." False positive that grows with time.
 
-   **What actually works** is per-file content: for each path the branch
-   touched, its blob in the branch must equal its blob in the default branch.
+   **What actually works** is per-file content: for each path the branch touched,
+   its blob on the branch must equal its blob on the base, treating *absent* as a
+   value so a deletion that landed compares equal. **Use the script — do not
+   hand-roll it:**
 
    ```sh
-   base=$(git merge-base origin/<default> <branch>)
-   for f in $(git diff --name-only "$base" <branch>); do
-     a=$(git rev-parse "<branch>:$f" 2>/dev/null || echo none)
-     b=$(git rev-parse "origin/<default>:$f" 2>/dev/null || echo none)
-     [ "$a" = "$b" ] || echo "UNLANDED: $f"
-   done
+   claude-infra/landed.sh <branch> origin/<default>   # exit 0 = safe to remove
    ```
 
-   **Make the check gate the removal.** Never chain `git worktree remove` after
-   a command that only *prints* a verdict — `check | wc -l` succeeds whether the
-   count is 0 or 50, so `&&` runs the removal either way and the verification
-   becomes decoration. Branch on the result, or run the removal as a separate
-   step after reading it. (Learned by deleting a branch this way; the content had
-   landed, so it cost nothing, but the check had not actually been consulted.)
+   It is a script rather than a snippet here because the snippet was wrong three
+   separate times — ancestry, diff direction, and `rev-parse` printing its argument
+   on a missing path so every *deleted* file reported as unlanded. `verify.sh`
+   exercises it, including that deletion case.
+
+   **Make the check gate the removal.** Never chain `git worktree remove` after a
+   command that only *prints* a verdict — `check | wc -l` succeeds whether the count
+   is 0 or 50, so `&&` runs the removal either way and the verification becomes
+   decoration. Branch on the exit code:
+
+   ```sh
+   if claude-infra/landed.sh <branch> origin/<default> && [ -z "$(git -C <wt> status --short)" ]; then
+     git worktree remove <wt>
+   fi
+   ```
 5. Remove **every** mission worktree and delete the whole branch family; delete
    remote branches only after the whole stack is in. Re-run `git worktree list`
    afterwards and confirm none of the mission's entries survive — a stranded
