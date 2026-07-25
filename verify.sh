@@ -203,7 +203,7 @@ done < <(find "$DIR/commands" "$DIR/hooks" "$DIR/settings" -type f -print0 2>/de
 # this logic shipped broken, so it gets a real fixture repo rather than inspection:
 # a branch that modifies, adds, AND deletes, checked before and after a merge.
 section "landed.sh (decommission gate)"
-if [ ! -x "$DIR/landed.sh" ]; then
+if [ ! -x "$DIR/scripts/landed.sh" ]; then
   bad "landed.sh missing or not executable"
 else
   L="$SCRATCH/landed"; mkdir -p "$L"
@@ -221,7 +221,7 @@ else
   ) > /dev/null 2>&1
 
   # Before merging: every touched file should report unlanded.
-  (cd "$L" && bash "$DIR/landed.sh" feature base-ref) > "$SCRATCH/l1.log" 2>&1
+  (cd "$L" && bash "$DIR/scripts/landed.sh" feature base-ref) > "$SCRATCH/l1.log" 2>&1
   rc=$?
   [ "$rc" -ne 0 ] && ok "landed.sh refuses an unmerged branch (exit $rc)" \
     || bad "landed.sh approved an unmerged branch"
@@ -233,7 +233,7 @@ else
   # snippet failed exactly here: rev-parse printed its argument for the missing
   # path, so two absent files compared unequal and the deletion never cleared.
   (cd "$L" && git checkout -q base-ref && git merge -q --no-edit feature) > /dev/null 2>&1
-  (cd "$L" && bash "$DIR/landed.sh" feature base-ref) > "$SCRATCH/l2.log" 2>&1
+  (cd "$L" && bash "$DIR/scripts/landed.sh" feature base-ref) > "$SCRATCH/l2.log" 2>&1
   rc=$?
   [ "$rc" -eq 0 ] && ok "landed.sh approves after the merge" \
     || bad "landed.sh still refuses a fully-merged branch: $(grep UNLANDED "$SCRATCH/l2.log" | head -2)"
@@ -247,9 +247,46 @@ else
     cd "$L" && git checkout -qb squash-base base-ref~1 2>/dev/null \
       && git merge -q --squash feature && git commit -qm squashed
   ) > /dev/null 2>&1
-  (cd "$L" && bash "$DIR/landed.sh" feature squash-base) > "$SCRATCH/l3.log" 2>&1
+  (cd "$L" && bash "$DIR/scripts/landed.sh" feature squash-base) > "$SCRATCH/l3.log" 2>&1
   [ $? -eq 0 ] && ok "landed.sh approves a squash-merged branch (ancestry broken, content equal)" \
     || bad "landed.sh refuses a squash-merged branch — the original false positive"
+fi
+
+# Doctrine that references an executable is only as good as the executable being
+# there. scripts/ was root-level and outside EVERY install path — install.sh copied
+# agents/hooks/commands, sync-repo copied hooks/agents/commands, and landed.sh
+# reached neither. mission.md pointed at a file that did not exist downstream.
+section "scripts/ reaches both install paths"
+if [ ! -d "$DIR/scripts" ]; then
+  bad "scripts/ directory missing"
+else
+  for s in "$DIR"/scripts/*; do
+    n=$(basename "$s")
+    grep -q "scripts" "$DIR/install.sh" && ok "install.sh copies scripts/ (for $n)" \
+      || bad "install.sh does not copy scripts/ — $n never reaches ~/.claude"
+    # sync-repo's half is asserted behaviorally in the sync-repo section below,
+    # by running it against a scratch downstream — a grep here would pass on a
+    # rename that broke the copy.
+    break   # one representative file is enough; the copy is per-directory
+  done
+  # Every scripts/ path mission.md tells you to run must actually ship. Scoped to
+  # `scripts/<name>` references — a passing mention of another file (verify.sh,
+  # say) is prose, not an invocation of something that has to travel.
+  refs=$(grep -oE 'scripts/[A-Za-z0-9_.-]+\.sh' "$DIR/commands/mission.md" | sort -u)
+  if [ -z "$refs" ]; then
+    bad "mission.md no longer references any scripts/ path — the gate is undocumented"
+  else
+    while IFS= read -r ref; do
+      [ -f "$DIR/$ref" ] \
+        && ok "mission.md references $ref, which ships" \
+        || bad "mission.md references $ref but it does not exist"
+    done <<< "$refs"
+  fi
+  # And the downstream .gitignore advice has to cover it, or the synced copy is
+  # written and never tracked — the same defect as the provenance stamp.
+  grep -q "'!.claude/scripts/'" "$DIR/sync-repo.sh" \
+    && ok ".gitignore check requires the scripts/ whitelist" \
+    || bad ".gitignore check omits scripts/ — synced scripts would stay untracked"
 fi
 
 section "retirement manifest covers what this branch deleted"
@@ -506,6 +543,14 @@ if [ -f "$DIR/sync-repo.sh" ]; then
     && ok "pre-existing UserPromptSubmit hook preserved" || bad "pre-existing hook clobbered"
   [ -f "$DOWN/.claude/.claude-infra-version" ] && ok "provenance stamp written" \
     || bad "no provenance stamp"
+
+  # The executables the doctrine tells a session to run must travel with it. A
+  # cloud session in a synced repo has no claude-infra checkout to fall back on.
+  if [ -x "$DOWN/.claude/scripts/landed.sh" ]; then
+    ok "sync-repo delivered scripts/landed.sh, executable"
+  else
+    bad "scripts/landed.sh did not reach the downstream repo — mission.md would dangle"
+  fi
 
   # A repo that tracks .claude/hooks/ gives every mission worktree its own copy.
   # --scan must count the repo once, and syncing INTO a worktree must be refused.

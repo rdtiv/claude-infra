@@ -131,6 +131,7 @@ TARGET_CLAUDE="$REPO/.claude"
 TARGET_HOOKS="$TARGET_CLAUDE/hooks"
 TARGET_AGENTS="$TARGET_CLAUDE/agents"
 TARGET_COMMANDS="$TARGET_CLAUDE/commands"
+TARGET_SCRIPTS="$TARGET_CLAUDE/scripts"
 
 WRITTEN=()
 SKIPPED=()
@@ -196,6 +197,39 @@ for f in "$CI_DIR"/hooks/*; do
   fi
 done
 retire_from "hooks"
+echo
+
+# ---------------------------------------------------------------------------
+# 1b. Scripts — overwrite verbatim, same as hooks.
+#
+# These are executables the doctrine tells a session to RUN (hooks are what the
+# harness runs on its behalf). They must travel with the doctrine that references
+# them: commands/mission.md points at landed.sh, and a cloud session in a synced
+# repo has no claude-infra checkout to fall back on — without this the reference
+# dangles. Root-level scripts were outside every sync path until this existed.
+# ---------------------------------------------------------------------------
+echo "--- scripts ---"
+if [ -d "$CI_DIR/scripts" ]; then
+  for f in "$CI_DIR"/scripts/*; do
+    [ -f "$f" ] || continue
+    name="$(basename "$f")"
+    dest="$TARGET_SCRIPTS/$name"
+    if [ -f "$dest" ] && cmp -s "$f" "$dest"; then
+      echo "  $name: already up to date"
+      continue
+    fi
+    [ -f "$dest" ] && echo "  $name: updated (was stale)" || echo "  $name: created"
+    WRITTEN+=("scripts/$name")
+    if [ "$DRY_RUN" -eq 0 ]; then
+      mkdir -p "$TARGET_SCRIPTS"
+      cp "$f" "$dest"
+      chmod +x "$dest"
+    fi
+  done
+  retire_from "scripts"
+else
+  echo "  (none in claude-infra)"
+fi
 echo
 
 # ---------------------------------------------------------------------------
@@ -426,7 +460,7 @@ if [ -f "$GITIGNORE" ] && grep -qE '^\.claude/\*[[:space:]]*$' "$GITIGNORE"; the
   # provenance stamp up too, so it gets written but never tracked — every fresh
   # clone then reports "unstamped" and --scan quietly lies about what is deployed.
   for pat in '!.claude/agents/' '!.claude/hooks/' '!.claude/commands/' \
-             '!.claude/.claude-infra-version'; do
+             '!.claude/scripts/' '!.claude/.claude-infra-version'; do
     grep -qF "$pat" "$GITIGNORE" || missing+=("$pat")
   done
   if [ "${#missing[@]}" -gt 0 ]; then

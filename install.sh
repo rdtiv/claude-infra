@@ -6,11 +6,16 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
 mkdir -p "$HOME/.claude/agents" "$HOME/.claude/hooks" "$HOME/.claude/commands" \
-         "$HOME/.claude/rules"
+         "$HOME/.claude/rules" "$HOME/.claude/scripts"
 cp "$DIR"/agents/*.md "$HOME/.claude/agents/"
 cp "$DIR"/hooks/* "$HOME/.claude/hooks/"
 cp "$DIR"/commands/*.md "$HOME/.claude/commands/"
-echo "agents, hooks, commands copied to ~/.claude"
+# scripts/ holds executables the doctrine tells you to RUN (as opposed to hooks,
+# which the harness runs for you). They have to land wherever the doctrine that
+# references them lands, or /mission points at a file that isn't there.
+cp "$DIR"/scripts/* "$HOME/.claude/scripts/"
+chmod +x "$HOME"/.claude/scripts/* 2>/dev/null || true
+echo "agents, hooks, commands, scripts copied to ~/.claude"
 
 # Retire artifacts deleted upstream, per settings/retired.md. Copying is not enough:
 # a file removed from this repo stays on every machine that installed it before the

@@ -140,7 +140,9 @@ Decommission checklist — a mission is not done until all of these:
    hand-roll it:**
 
    ```sh
-   claude-infra/landed.sh <branch> origin/<default>   # exit 0 = safe to remove
+   # repo-level install (cloud sessions included), else user scope:
+   .claude/scripts/landed.sh <branch> origin/<default>    # exit 0 = safe to remove
+   ~/.claude/scripts/landed.sh <branch> origin/<default>
    ```
 
    It is a script rather than a snippet here because the snippet was wrong three
@@ -154,7 +156,7 @@ Decommission checklist — a mission is not done until all of these:
    decoration. Branch on the exit code:
 
    ```sh
-   if claude-infra/landed.sh <branch> origin/<default> && [ -z "$(git -C <wt> status --short)" ]; then
+   if <path>/landed.sh <branch> origin/<default> && [ -z "$(git -C <wt> status --short)" ]; then
      git worktree remove <wt>
    fi
    ```
