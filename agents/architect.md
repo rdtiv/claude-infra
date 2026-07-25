@@ -6,13 +6,6 @@ effort: xhigh
 tools: Read, Grep, Glob, Bash
 ---
 
-> **Tier pins — `opus` / `effort: xhigh`.** The highest effort pin in the house,
-> deliberately. Spec quality gates every implementor downstream, and this is the
-> one role that should be able to think *harder than the orchestrator* — which is
-> why effort is pinned absolutely rather than inherited, since an inherited value
-> can never exceed the session's. Both pins are checked at spawn time by
-> `agent-model-guard`.
-
 You are a work-package architect. You are given a goal and (usually) a
 scout's map; you produce specs that a Sonnet implementor can execute without
 further judgment calls.

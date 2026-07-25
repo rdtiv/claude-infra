@@ -135,6 +135,37 @@ TARGET_COMMANDS="$TARGET_CLAUDE/commands"
 WRITTEN=()
 SKIPPED=()
 WARNINGS=()
+RETIRED=()
+
+# Retirement is driven by settings/retired.md — an explicit list of paths this repo
+# used to install and no longer does.
+#
+# It is NOT "delete anything downstream I don't recognise." That deletes repo-OWNED
+# artifacts: a repo's own hook, its own slash commands. Absence from claude-infra is
+# not evidence of retirement, and where .claude/ is gitignored the deletion is
+# unrecoverable. Only paths named in the manifest are removed.
+retired_paths() { # $1 = subdir filter ("hooks" | "commands")
+  local manifest="$CI_DIR/settings/retired.md" line
+  [ -f "$manifest" ] || return 0
+  while IFS= read -r line; do
+    case "$line" in
+      ""|"<!--"*|*"-->"|" "*) continue ;;
+      "$1"/*) printf '%s\n' "$line" ;;
+    esac
+  done < "$manifest"
+}
+
+retire_from() { # $1 = subdir ("hooks" | "commands")
+  local rel dest
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    dest="$TARGET_CLAUDE/$rel"
+    [ -f "$dest" ] || continue          # -f, not -e: never try to rm a directory
+    echo "  $(basename "$rel"): retired (listed in settings/retired.md)"
+    RETIRED+=("$rel")
+    [ "$DRY_RUN" -eq 0 ] && rm -f "$dest"
+  done < <(retired_paths "$1")
+}
 
 echo "=== sync-repo: $CI_DIR -> $REPO ==="
 if [ "$DRY_RUN" -eq 1 ]; then
@@ -164,6 +195,7 @@ for f in "$CI_DIR"/hooks/*; do
     cp "$f" "$dest"
   fi
 done
+retire_from "hooks"
 echo
 
 # ---------------------------------------------------------------------------
@@ -375,9 +407,10 @@ if [ -d "$TARGET_COMMANDS" ] || [ "$WITH_COMMANDS" -eq 1 ]; then
       cp "$f" "$dest"
     fi
   done
+  retire_from "commands"
 else
   echo "  .claude/commands/ does not exist downstream and --with-commands was not passed."
-  echo "  Skipping — cloud sessions in this repo will not see /mission or /orchestrate."
+  echo "  Skipping — cloud sessions in this repo will not see /mission."
   WARNINGS+=("commands/ absent downstream — pass --with-commands to create it")
 fi
 echo
@@ -431,6 +464,8 @@ echo "written (${#WRITTEN[@]}):"
 for w in "${WRITTEN[@]:-}"; do [ -n "$w" ] && echo "  - $w"; done
 echo "skipped/no-op (${#SKIPPED[@]}):"
 for s in "${SKIPPED[@]:-}"; do [ -n "$s" ] && echo "  - $s"; done
+echo "retired (${#RETIRED[@]}):"
+for r in "${RETIRED[@]:-}"; do [ -n "$r" ] && echo "  - $r"; done
 echo "warnings (${#WARNINGS[@]}):"
 for w in "${WARNINGS[@]:-}"; do [ -n "$w" ] && echo "  - $w"; done
 echo

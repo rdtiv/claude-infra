@@ -12,6 +12,22 @@ cp "$DIR"/hooks/* "$HOME/.claude/hooks/"
 cp "$DIR"/commands/*.md "$HOME/.claude/commands/"
 echo "agents, hooks, commands copied to ~/.claude"
 
+# Retire artifacts deleted upstream, per settings/retired.md. Copying is not enough:
+# a file removed from this repo stays on every machine that installed it before the
+# removal, and in the hook case it stays wired in settings.json and fails at every
+# session start. merge-hook.mjs (below) strips the matching settings entries.
+#
+# Driven by the manifest rather than "delete anything not in the repo" — the latter
+# would remove the operator's own agents, hooks, and commands from ~/.claude.
+while IFS= read -r rel; do
+  case "$rel" in ""|"<!--"*|*"-->"|" "*) continue ;; esac
+  target="$HOME/.claude/$rel"
+  if [ -f "$target" ]; then
+    rm -f "$target"
+    echo "retired: .claude/$rel"
+  fi
+done < "$DIR/settings/retired.md"
+
 node "$DIR/settings/merge-hook.mjs"
 
 # Doctrine lives in an installer-OWNED rules file, overwritten wholesale every

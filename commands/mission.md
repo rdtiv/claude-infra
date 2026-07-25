@@ -1,40 +1,51 @@
 ---
-description: Start or finish a mission — one worktree, one branch family, one kickoff issue. Provision at start, decommission at end; the main checkout never does feature work.
+description: Run a mission — provision, execute under the delegation contract, decommission. One kickoff, one branch family, one session; the main checkout never does feature work.
 ---
 
-You are running the **mission lifecycle**. A mission is one unit of work:
-one kickoff issue ↔ one branch family ↔ one session. `$ARGUMENTS` is either a
-kickoff (issue number and/or goal) or the word `end`.
+You are running a **mission**: one kickoff ↔ one branch family ↔ one session.
+`$ARGUMENTS` is the kickoff — an issue number, a PR number, or a description — or
+the word `end`.
 
-A mission may hold **more than one worktree**. What must stay singular is the
-issue, the branch family, and the session — not the checkout count. Two tiers:
+**Name the tier you are on in your first status line.** The operator sets it with
+`/model` before invoking this; you observe it, you do not choose it. It changes the
+delegation guidance in step 3, so a wrong tier is worth catching before you provision.
 
-- **Ephemeral agent worktrees** — the default for concurrent writers. Pass
-  `isolation: "worktree"` on the Agent call and the harness gives that agent its
-  own checkout, auto-removed if it changes nothing. No branch, no bookkeeping,
-  nothing to decommission. Reach for this whenever parallel implementors would
-  otherwise write the same files.
-- **Long-lived stream worktrees** — when a mission has genuinely independent
-  streams that each want their own branch and PR. One per stream, named
-  `.claude/worktrees/wt-<issue>-<stream>` on `<type>/<slug>-<stream>`.
+- **Fable** — the operator is in the loop, clarifying unknowns as the work proceeds.
+  Hard or ambiguous problems where the bottleneck is articulating what nobody knows yet.
+- **Opus** — decomposable work meant to run unattended. Strongest when handed the
+  complete specification up front and left alone.
 
-Prefer agent isolation; it costs nothing and cleans itself up. Provision a second
-long-lived worktree only when the streams need separate branches — independent
-territories that will land as separate PRs. If two streams would touch the same
-files, they are one stream.
+A mission may hold **more than one worktree**. What stays singular is the kickoff, the
+branch family, and the session — not the checkout count.
 
-## If starting (`/mission <issue# or goal>`)
+- **Ephemeral agent worktrees** — the default for concurrent writers. `isolation:
+  "worktree"` on the Agent call gives that agent its own checkout, auto-removed if it
+  changes nothing. No branch, nothing to decommission.
+- **Long-lived stream worktrees** — one per genuinely independent stream that will land
+  as its own PR: `.claude/worktrees/wt-<ref>-<stream>` on `<type>/<slug>-<stream>`,
+  where `<ref>` is fixed in step 1 below.
+
+Prefer agent isolation. If two streams would touch the same files, they are one stream.
+
+## If starting (`/mission <issue# | pr# | description>`)
 
 1. **Provision:**
-   - Fetch and read the kickoff issue if one was given; if none exists and
-     the work is multi-package, draft one first (self-contained start-prompt
-     style) and get the operator's OK.
+   - Read the kickoff — fetch the issue or PR if one was given. **Fix a `<ref>` now
+     and use it everywhere below**: the issue number, the PR number, or for a
+     description kickoff a short slug you pick. Everything downstream keys off it.
+   - **A description kickoff needs a home before it needs a worktree.** The
+     decommission checklist records worktrees, dispositions findings, and closes out
+     against a durable artifact; with nothing to write to, a second concurrent
+     mission has no way to know which worktrees are yours. If the work is
+     multi-package, draft the issue first and get the operator's OK. If it is small
+     enough not to warrant one, say so explicitly in your first status line and use
+     the PR description as the artifact instead — but do not proceed silently.
    - Create the worktree fresh from the default remote branch:
-     `git worktree add .claude/worktrees/wt-<issue>-<slug> -b <type>/<slug> origin/<default>`.
+     `git worktree add .claude/worktrees/wt-<ref>-<slug> -b <type>/<slug> origin/<default>`.
      If the mission has independent streams that will land as separate PRs, add
-     one per stream — `wt-<issue>-<stream>` on `<type>/<slug>-<stream>`, each
+     one per stream — `wt-<ref>-<stream>` on `<type>/<slug>-<stream>`, each
      branched from `origin/<default>`, never from a sibling stream. Record the
-     full worktree list on the kickoff issue; `/mission end` has to decommission
+     full worktree list on the kickoff artifact; `/mission end` has to decommission
      every one of them, and an unrecorded worktree is one that gets stranded.
    - Install dependencies and environment per the repo's CLAUDE.md. In a
      fresh worktree, install *real* dependencies (`npm ci` / `pnpm i` /
@@ -43,29 +54,50 @@ files, they are one stream.
      symlink that points outside the worktree's filesystem root and the
      build fails ("Symlink node_modules is invalid, it points out of the
      filesystem root").
-   - If the repo runs a dev server, claim the port deterministically:
-     `3000 + (issue# % 1000)`; state it in your first status line.
-2. **Open the task list** — one task per work package, mirroring the kickoff
-   issue's checklist. Required for any mission with **3+ work packages or more
-   than one worktree**; optional below that, where it is just ceremony.
+   - If the repo runs a dev server, claim the port deterministically from `<ref>`:
+     `3000 + (issue-or-PR-number % 1000)`, or for a non-numeric ref
+     `3000 + (cksum of the slug % 1000)` — the property that matters is that two
+     concurrent missions never derive the same port, so the input must be the ref
+     and not something incidental. State it in your first status line.
+2. **Open the task list** — one task per work package. Always; if the work were small
+   enough not to need it, it would not be a mission.
 
-   This is not the same artifact as step 3 and does not substitute for it.
-   The task list is *in-session working state* — what is in flight, in what
-   order, right now, visible to the operator while you work. It dies with the
-   session. Externalized state is *durable operator-facing state* and outlives
-   it. A mission needs both; satisfying one and calling it done is the failure
-   mode this rule exists to prevent.
+   It is not the same artifact as step 4 and does not substitute for it. The task list
+   is *in-session working state* — what is in flight, in what order, visible to the
+   operator while you work — and it dies with the session. Externalized state is
+   *durable and operator-facing* and outlives it. A thorough issue with an untouched
+   task list satisfies step 4 while losing everything this step is for, which is the
+   easy mistake because the issue feels like tracking.
 
-3. **Execute** under the orchestration contract (`/orchestrate`): scout recon
-   → architect specs → pinned implementors → finder/verifier pass → the
-   repo's PR gate. All commits happen in this worktree — never in the main
-   checkout. Keep the task list current as you go: a package flips to
-   in-progress when its implementor spawns, completed when its work is
-   verified — not when it is merely written.
-4. **Externalize state** at every phase end (issue comments, plan docs,
-   tracker if the repo has one) so a fresh session can resume from artifacts
-   alone. The task list is *not* externalized state — it is not durable and a
-   fresh session cannot read it.
+3. **Execute.** Your job is design, specification, judgment, and coordination.
+
+   Scout recon (parallel, one mapping question each) → `architect` specs, or write them
+   yourself: files with verified anchors, the change, invariants, out-of-scope,
+   verification commands → `implementor` agents run the packages → `finder` fleets for
+   coverage and `verifier` agents for judgment, or the repo's own review workflow →
+   the repo's PR gate. Work the findings, not the score. You review implementor reports;
+   you do not rewrite their work unless a package fails twice.
+
+   All commits happen in a mission worktree — never the main checkout. Keep the task
+   list current: a package flips to in-progress when its implementor spawns, and to
+   completed when its work is *verified*, not when it is written.
+
+   **Delegation, on Opus** — cap it. Each subagent re-establishes context, re-explores,
+   reports back, and then you re-read the report. Don't delegate what you would finish
+   in a handful of tool calls. Don't fan several agents at one modest job. Keep spawn
+   counts low. Commit to a delegation rather than re-deriving its findings.
+
+   **Delegation, on Fable** — use it freely. Dispatch independent subtasks and keep
+   working while they run rather than blocking on each return. Prefer long-lived
+   subagents that hold context across subtasks, which saves time and cost through cache
+   reads and avoids bottlenecking on the slowest one. Intervene when a subagent goes off
+   track or is missing context, not on a schedule.
+
+   Inline work is the exception either way: trivial edits, spec-writing, judgment calls,
+   and integration decisions.
+4. **Externalize state** at every phase end (issue comments, plan docs, tracker if the
+   repo has one) so a fresh session can resume from artifacts alone. The task list is
+   *not* externalized state — it is not durable and a fresh session cannot read it.
 
 ## If finishing (`/mission end`)
 
@@ -74,19 +106,19 @@ Decommission checklist — a mission is not done until all of these:
 1. All mission PRs merged (by the operator) or explicitly parked with an issue comment
    saying what remains and why.
 2. **Documentation gate**: launch the pinned `documentarian` agent over the
-   mission's merged work (give it the kickoff issue number and the merged PR
+   mission's merged work (give it the kickoff artifact and the merged PR
    list). The gate closes when one of these is true: the docs PR has landed
    through the repo's review gate; the docs PR is open, gated, and explicitly
-   parked on the kickoff issue as the remaining item (merging stays a human
+   parked on the kickoff artifact as the remaining item (merging stays a human
    decision — never block decommission on the operator's merge timing); or the
-   agent's explicit no-docs-impact verdict is recorded on the kickoff issue.
-3. The kickoff issue is closed or updated with the punch list; review
+   agent's explicit no-docs-impact verdict is recorded on the kickoff artifact.
+3. The kickoff artifact is closed or updated with the punch list; review
    findings dispositioned wherever the repo tracks them. **Reconcile the task
    list into it first** — anything still open or discovered late lives only in
    the task list, which is about to vanish with the session. Then clear it.
 4. Verify nothing unmerged — **for every mission worktree, not just the one you
    are standing in**. Enumerate them first (`git worktree list`, cross-checked
-   against the list recorded on the kickoff issue), then for each: `git status
+   against the list recorded on the kickoff artifact), then for each: `git status
    --short` is clean, AND every file the branch touched has landed. A mission
    with three worktrees and one checked is a mission with two unverified
    checkouts.
