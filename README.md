@@ -118,6 +118,9 @@ outside a worktree or scratch path.
 
 ## Install
 
+If you'd rather not run it yourself, skip to [Let Claude install it](#let-claude-install-it)
+and paste the prompt there into a Claude Code session.
+
 ```sh
 git clone https://github.com/rdtiv/claude-infra.git && cd claude-infra
 ./install.sh
@@ -128,6 +131,51 @@ session start.
 
 No git on the machine? Paste `setup-prompt.md` into a Claude Code session and say
 "execute this". It contains everything inline.
+
+### Let Claude install it
+
+Paste this into a fresh Claude Code session. It covers a first install and an
+update, including the one step the installer deliberately won't do for you.
+
+```text
+Install claude-infra on this machine.
+
+1. Clone https://github.com/rdtiv/claude-infra.git into ~/dev (or pull if it's
+   already there), then run ./install.sh from the repo root.
+2. Show me the installer's output, including anything it says it retired.
+3. If it warns that ~/.claude/CLAUDE.md still has a legacy
+   "## Delegation & session modes" section: show me those exact lines and the
+   two lines on either side, then wait for me to confirm before deleting them.
+   Do not guess where the section ends — my own preferences may sit right under
+   it with no heading between.
+4. Run ./verify.sh and tell me the pass count and any failures.
+5. Summarise what changed in ~/.claude, and remind me to restart my sessions.
+
+Don't modify anything outside ~/.claude and the clone.
+```
+
+**After it finishes, restart your sessions.** Then start real work with `/model`
+(pick the tier) followed by `/mission <issue# | pr# | description>`.
+
+### Let Claude set up a repository
+
+For a repo whose cloud sessions need their own copy — run this from a session in
+the **claude-infra** clone:
+
+```text
+Sync claude-infra into <path-to-my-repo>.
+
+1. Run ./sync-repo.sh --scan ~/dev first and show me which repos already have an
+   install and at what version.
+2. Then ./sync-repo.sh <path-to-my-repo> --dry-run and show me the full report —
+   especially anything it says it would retire, and any .gitignore warning.
+3. If that looks right: create a worktree in that repo for the sync
+   (git worktree add .claude/worktrees/wt-infra-sync -b chore/sync origin/main),
+   run the sync into it with --allow-worktree, and open a PR from there.
+
+Do not commit to that repo's main checkout, and do not touch its agent bodies —
+those are the repo's own.
+```
 
 ### Updating from a previous version
 
@@ -215,6 +263,7 @@ which is exactly why they're never both in context.
 | `~/.claude/hooks/agent-model-guard.mjs` | Reads the spawned agent's own definition and denies unless it pins an approved `model:` and an explicit `effort:`. Also denies inheriting spawns and `subagent_type: fork` |
 | `~/.claude/hooks/git-destruction-guard.mjs` | Denies `reset --hard`, `clean -f`, `checkout .`, `checkout <ref> -- <path>`, non-staged `restore`, `stash drop` outside `.claude/worktrees/` and scratch paths. Matches quote-stripped text, so merely *mentioning* those commands in a string is fine |
 | `~/.claude/commands/mission.md` | `/mission` and `/mission end` — the full lifecycle |
+| `~/.claude/scripts/` | Executables the doctrine tells a session to run — currently `landed.sh`, the check that decides whether a worktree is safe to remove. Hooks are what the harness runs for you; these are what you run |
 | `~/.claude/rules/claude-infra-delegation.md` | The short always-loaded doctrine. Installer-owned and overwritten every run; auto-loaded at user scope, so it needs no entry in `CLAUDE.md` |
 | `~/.claude/settings.json` | Hook wiring, merged into whatever is already there |
 
@@ -241,7 +290,7 @@ repo** — its own lint commands, house review conventions — and are never wri
 reported as drift. `settings.json` is merged, so unrelated hooks survive. Files removed
 upstream are retired downstream. `.gitignore` is reported on but never edited: if
 `.claude/*` is ignored, it needs `!.claude/agents/`, `!.claude/hooks/`,
-`!.claude/commands/`, and `!.claude/.claude-infra-version`.
+`!.claude/commands/`, `!.claude/scripts/`, and `!.claude/.claude-infra-version`.
 
 The tool never commits. It leaves a dirty tree so the change lands through that repo's
 own review gate.
@@ -254,7 +303,7 @@ own review gate.
 ./verify.sh          # also run automatically by ./install.sh
 ```
 
-108 checks: both guard behavior matrices, every agent pinning both axes, install and
+117 checks: both guard behavior matrices, every agent pinning both axes, install and
 doctrine propagation including idempotency and the migration from older layouts,
 `setup-prompt.md` matching a fresh generation, and `sync-repo.sh` against a downstream
 that carries both retired artifacts *and* its own repo-owned hooks and commands — the
