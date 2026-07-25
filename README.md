@@ -39,18 +39,23 @@ session and say "execute this".
 | `~/.claude/agents/` | Six pinned roles, each pinning **model and effort**: `scout`/`finder`/`implementor` (sonnet, medium), `architect` (opus, xhigh), `verifier`/`documentarian` (opus, high) |
 | `~/.claude/hooks/agent-model-guard.mjs` | PreToolUse guard: reads the spawned agent's **own definition** and denies unless it pins an approved `model:` *and* an explicit `effort:`. Model approval is an allowlist (`sonnet`/`opus`/`haiku`, or a version-pinned ID of one), so unknown and frontier tiers fail closed. Also denies spawns that would inherit the session model, and `subagent_type: fork` unconditionally (a fork ignores `model:`) |
 | `~/.claude/hooks/git-destruction-guard.mjs` | PreToolUse guard: denies working-tree-destroying git (`reset --hard`, `clean -f`/`--force`, `checkout .` or `checkout <ref> -- <path>`, `restore` unless staged-only, `stash drop`) outside `.claude/worktrees/` and scratch paths — the main checkout may hold another session's uncommitted work. Matches on quote-stripped command text, so commands that merely mention destructive git in a string are not blocked |
-| `~/.claude/hooks/session-protocol.sh` | SessionStart hook: injects the standing ritual so every session opens by surfacing the protocol (model tier → /mission → /orchestrate) |
-| `~/.claude/commands/orchestrate.md` | `/orchestrate <goal>` — session contract: spec first, delegate to pinned workers, verify adversarially |
-| `~/.claude/commands/mission.md` | `/mission <issue#>` / `/mission end` — worktree lifecycle: provision fresh from origin, one worktree per independent stream (agent-level `isolation: "worktree"` for merely-concurrent writers); at end, a `documentarian` docs gate precedes decommission and *every* mission worktree is verified and removed; migrations ship to prod before the code that needs them; main checkout = integration ground only |
+| `~/.claude/commands/mission.md` | `/mission <issue# \| pr# \| description>` / `/mission end` — the whole contract. Provision fresh from origin, one worktree per independent stream (agent-level `isolation: "worktree"` for merely-concurrent writers); execute scout → architect → implementors → finder/verifier → PR gate, with delegation guidance for the tier you're on; at end, a `documentarian` docs gate precedes decommission and *every* mission worktree is verified and removed; migrations ship to prod before the code that needs them; main checkout = integration ground only |
 | `~/.claude/settings.json` | Hook wiring (merged, never clobbered) |
 | `~/.claude/rules/claude-infra-delegation.md` | The delegation doctrine. Installer-**owned** and overwritten wholesale every run — `~/.claude/rules/*.md` is auto-loaded at user scope, so this needs no entry in `CLAUDE.md` and the installer never writes to that file |
 
 ## Session-start language
 
-1. `/model fable` (ambiguous / novel / multi-stream) or `/model opus`
-   (well-specified / single-stream) — the orchestrator tier.
-2. `/mission <issue#>` for a new unit of work; `/orchestrate <goal>` for the
-   build contract inside it. Plain prompting for conversational/small work.
+1. **`/model`** picks the tier. **Fable** when you're in the loop clarifying unknowns
+   as it works — hard or ambiguous problems where the bottleneck is articulating what
+   nobody knows yet. **Opus** for decomposable work meant to run unattended, handed the
+   full spec up front.
+2. **`/mission <issue# | pr# | description>`** for anything warranting a branch and a
+   PR; `/mission end` to decommission. Plain prompting for conversational work.
+
+There is no separate build contract to invoke — `/mission` carries it, and emits the
+delegation guidance for whichever tier you chose in step 1. Opus is told to cap
+delegation; Fable is told to use subagents freely and asynchronously. Those are
+opposite instructions, which is why they are never both in context at once.
 
 ## Repo-level install (for repos with cloud sessions)
 

@@ -14,8 +14,8 @@ judges; subagents execute on pinned cheaper models at pinned effort and
 **never inherit either from the session**. Enforced three ways: named agent
 types with model AND effort pinned in frontmatter, a `PreToolUse` hook that
 reads the spawned agent's own definition file and denies inheriting,
-frontier-tier, unrecognized-tier, and fork spawns, and a `/orchestrate`
-command that primes the session contract.
+frontier-tier, unrecognized-tier, and fork spawns, and a `/mission`
+command that carries the execution contract.
 
 Origin: analysis of a five-day multi-agent sprint found roughly a third of
 subagent turns running on the frontier model by silent inheritance — the
@@ -113,26 +113,10 @@ agent bodies.
 <!-- include:hooks/git-destruction-guard.mjs -->
 ```
 
-### `~/.claude/commands/orchestrate.md`
-
-```markdown
-<!-- include:commands/orchestrate.md -->
-```
-
----
-
-### `~/.claude/hooks/session-protocol.sh`
-
-```bash
-<!-- include:hooks/session-protocol.sh -->
-```
-
-(Mark it executable: `chmod +x ~/.claude/hooks/session-protocol.sh`.)
-
 ## Part 2 — settings fragment (MERGE into `~/.claude/settings.json`)
 
 Add these entries to the `hooks` object (create `hooks` if it doesn't exist;
-append to existing `PreToolUse` / `SessionStart` arrays):
+append to an existing `PreToolUse` array):
 
 ```json
 {
@@ -153,17 +137,6 @@ append to existing `PreToolUse` / `SessionStart` arrays):
           {
             "type": "command",
             "command": "node \"$HOME/.claude/hooks/git-destruction-guard.mjs\""
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "matcher": "startup|clear",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$HOME/.claude/hooks/session-protocol.sh\""
           }
         ]
       }
@@ -225,5 +198,6 @@ start) and confirm the new types appear when spawning agents.
 - The hook **fails open** on unparseable input and only evaluates
   `tool_name === "Agent"`; Workflow-internal `agent()` calls don't pass
   through PreToolUse — pin models inside the workflow scripts themselves.
-- Session-start language: `/model fable` or `/model opus`, then
-  `/orchestrate <goal>` for multi-package work.
+- Session-start language: `/model fable` (you are in the loop clarifying unknowns)
+  or `/model opus` (decomposable, runs unattended), then `/mission <issue# | pr# |
+  description>` for anything warranting a branch and a PR.
