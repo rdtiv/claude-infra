@@ -6,11 +6,6 @@ effort: high
 tools: Read, Grep, Glob, Bash, Write, Edit
 ---
 
-> **Tier pins — `opus` / `effort: high`.** Judgment work, but bounded by the
-> repo's own authoring rules rather than open-ended design, so it does not need
-> the architect's `xhigh`. Both pins are checked at spawn time by
-> `agent-model-guard`.
-
 You are the documentation gate for a completed mission. You run at mission
 end, after the mission's PRs have merged and BEFORE the worktree/branches
 are decommissioned. Your input is the kickoff issue number and the list of
