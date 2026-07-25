@@ -137,6 +137,36 @@ SKIPPED=()
 WARNINGS=()
 RETIRED=()
 
+# Retirement is driven by settings/retired.md — an explicit list of paths this repo
+# used to install and no longer does.
+#
+# It is NOT "delete anything downstream I don't recognise." That deletes repo-OWNED
+# artifacts: a repo's own hook, its own slash commands. Absence from claude-infra is
+# not evidence of retirement, and where .claude/ is gitignored the deletion is
+# unrecoverable. Only paths named in the manifest are removed.
+retired_paths() { # $1 = subdir filter ("hooks" | "commands")
+  local manifest="$CI_DIR/settings/retired.md" line
+  [ -f "$manifest" ] || return 0
+  while IFS= read -r line; do
+    case "$line" in
+      ""|"<!--"*|*"-->"|" "*) continue ;;
+      "$1"/*) printf '%s\n' "$line" ;;
+    esac
+  done < "$manifest"
+}
+
+retire_from() { # $1 = subdir ("hooks" | "commands")
+  local rel dest
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    dest="$TARGET_CLAUDE/$rel"
+    [ -f "$dest" ] || continue          # -f, not -e: never try to rm a directory
+    echo "  $(basename "$rel"): retired (listed in settings/retired.md)"
+    RETIRED+=("$rel")
+    [ "$DRY_RUN" -eq 0 ] && rm -f "$dest"
+  done < <(retired_paths "$1")
+}
+
 echo "=== sync-repo: $CI_DIR -> $REPO ==="
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "(dry run — no files will be written)"
@@ -165,19 +195,7 @@ for f in "$CI_DIR"/hooks/*; do
     cp "$f" "$dest"
   fi
 done
-# Retire anything downstream with no claude-infra counterpart — a hook deleted
-# upstream (session-protocol.sh) must not live on forever in every synced repo.
-if [ -d "$TARGET_HOOKS" ]; then
-  for f in "$TARGET_HOOKS"/*; do
-    [ -e "$f" ] || continue
-    name="$(basename "$f")"
-    if [ ! -e "$CI_DIR/hooks/$name" ]; then
-      echo "  $name: retired (no longer in claude-infra)"
-      RETIRED+=("hooks/$name")
-      [ "$DRY_RUN" -eq 0 ] && rm -f "$f"
-    fi
-  done
-fi
+retire_from "hooks"
 echo
 
 # ---------------------------------------------------------------------------
@@ -389,22 +407,10 @@ if [ -d "$TARGET_COMMANDS" ] || [ "$WITH_COMMANDS" -eq 1 ]; then
       cp "$f" "$dest"
     fi
   done
-  # Retire anything downstream with no claude-infra counterpart — orchestrate.md
-  # must not live on forever in every synced repo now that it is deleted upstream.
-  if [ -d "$TARGET_COMMANDS" ]; then
-    for f in "$TARGET_COMMANDS"/*.md; do
-      [ -e "$f" ] || continue
-      name="$(basename "$f")"
-      if [ ! -e "$CI_DIR/commands/$name" ]; then
-        echo "  $name: retired (no longer in claude-infra)"
-        RETIRED+=("commands/$name")
-        [ "$DRY_RUN" -eq 0 ] && rm -f "$f"
-      fi
-    done
-  fi
+  retire_from "commands"
 else
   echo "  .claude/commands/ does not exist downstream and --with-commands was not passed."
-  echo "  Skipping — cloud sessions in this repo will not see /mission or /orchestrate."
+  echo "  Skipping — cloud sessions in this repo will not see /mission."
   WARNINGS+=("commands/ absent downstream — pass --with-commands to create it")
 fi
 echo

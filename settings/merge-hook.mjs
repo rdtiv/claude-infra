@@ -68,12 +68,19 @@ function ensure(event, matcher, command, marker) {
 function remove(marker) {
   let hit = false;
   for (const event of Object.keys(settings.hooks)) {
-    const before = settings.hooks[event].length;
-    settings.hooks[event] = settings.hooks[event].filter(
+    const list = settings.hooks[event];
+    if (!Array.isArray(list)) continue; // not ours to touch, and .filter would throw
+    const before = list.length;
+    const kept = list.filter(
       (entry) => !(entry.hooks || []).some((h) => (h.command || "").includes(marker)),
     );
-    if (settings.hooks[event].length !== before) hit = true;
-    if (settings.hooks[event].length === 0) delete settings.hooks[event];
+    if (kept.length === before) continue; // this event had nothing of ours in it
+    hit = true;
+    // Drop the event key only when WE emptied it. An event left empty by someone
+    // else is theirs, and deleting it here would be a silent edit to settings we
+    // never wrote.
+    if (kept.length === 0) delete settings.hooks[event];
+    else settings.hooks[event] = kept;
   }
   if (hit) {
     changed = true;

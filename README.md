@@ -254,10 +254,11 @@ own review gate.
 ./verify.sh          # also run automatically by ./install.sh
 ```
 
-103 checks: both guard behavior matrices, every agent pinning both axes, install and
+108 checks: both guard behavior matrices, every agent pinning both axes, install and
 doctrine propagation including idempotency and the migration from older layouts,
 `setup-prompt.md` matching a fresh generation, and `sync-repo.sh` against a downstream
-whose agent bodies are customized. Everything runs against scratch copies — it never
+that carries both retired artifacts *and* its own repo-owned hooks and commands — the
+latter must survive a sync untouched. Everything runs against scratch copies; it never
 writes to `$HOME`, to this repo, or to any downstream.
 
 ---

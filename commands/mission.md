@@ -22,22 +22,30 @@ branch family, and the session — not the checkout count.
   "worktree"` on the Agent call gives that agent its own checkout, auto-removed if it
   changes nothing. No branch, nothing to decommission.
 - **Long-lived stream worktrees** — one per genuinely independent stream that will land
-  as its own PR: `.claude/worktrees/wt-<kickoff>-<stream>` on `<type>/<slug>-<stream>`.
+  as its own PR: `.claude/worktrees/wt-<ref>-<stream>` on `<type>/<slug>-<stream>`,
+  where `<ref>` is fixed in step 1 below.
 
 Prefer agent isolation. If two streams would touch the same files, they are one stream.
 
 ## If starting (`/mission <issue# | pr# | description>`)
 
 1. **Provision:**
-   - Read the kickoff — fetch the issue or PR if one was given. If neither exists and
-     the work is multi-package, draft an issue first (self-contained start-prompt
-     style) and get the operator's OK.
+   - Read the kickoff — fetch the issue or PR if one was given. **Fix a `<ref>` now
+     and use it everywhere below**: the issue number, the PR number, or for a
+     description kickoff a short slug you pick. Everything downstream keys off it.
+   - **A description kickoff needs a home before it needs a worktree.** The
+     decommission checklist records worktrees, dispositions findings, and closes out
+     against a durable artifact; with nothing to write to, a second concurrent
+     mission has no way to know which worktrees are yours. If the work is
+     multi-package, draft the issue first and get the operator's OK. If it is small
+     enough not to warrant one, say so explicitly in your first status line and use
+     the PR description as the artifact instead — but do not proceed silently.
    - Create the worktree fresh from the default remote branch:
-     `git worktree add .claude/worktrees/wt-<issue>-<slug> -b <type>/<slug> origin/<default>`.
+     `git worktree add .claude/worktrees/wt-<ref>-<slug> -b <type>/<slug> origin/<default>`.
      If the mission has independent streams that will land as separate PRs, add
-     one per stream — `wt-<issue>-<stream>` on `<type>/<slug>-<stream>`, each
+     one per stream — `wt-<ref>-<stream>` on `<type>/<slug>-<stream>`, each
      branched from `origin/<default>`, never from a sibling stream. Record the
-     full worktree list on the kickoff issue; `/mission end` has to decommission
+     full worktree list on the kickoff artifact; `/mission end` has to decommission
      every one of them, and an unrecorded worktree is one that gets stranded.
    - Install dependencies and environment per the repo's CLAUDE.md. In a
      fresh worktree, install *real* dependencies (`npm ci` / `pnpm i` /
@@ -46,8 +54,11 @@ Prefer agent isolation. If two streams would touch the same files, they are one 
      symlink that points outside the worktree's filesystem root and the
      build fails ("Symlink node_modules is invalid, it points out of the
      filesystem root").
-   - If the repo runs a dev server, claim the port deterministically:
-     `3000 + (issue# % 1000)`; state it in your first status line.
+   - If the repo runs a dev server, claim the port deterministically from `<ref>`:
+     `3000 + (issue-or-PR-number % 1000)`, or for a non-numeric ref
+     `3000 + (cksum of the slug % 1000)` — the property that matters is that two
+     concurrent missions never derive the same port, so the input must be the ref
+     and not something incidental. State it in your first status line.
 2. **Open the task list** — one task per work package. Always; if the work were small
    enough not to need it, it would not be a mission.
 
@@ -95,19 +106,19 @@ Decommission checklist — a mission is not done until all of these:
 1. All mission PRs merged (by the operator) or explicitly parked with an issue comment
    saying what remains and why.
 2. **Documentation gate**: launch the pinned `documentarian` agent over the
-   mission's merged work (give it the kickoff issue number and the merged PR
+   mission's merged work (give it the kickoff artifact and the merged PR
    list). The gate closes when one of these is true: the docs PR has landed
    through the repo's review gate; the docs PR is open, gated, and explicitly
-   parked on the kickoff issue as the remaining item (merging stays a human
+   parked on the kickoff artifact as the remaining item (merging stays a human
    decision — never block decommission on the operator's merge timing); or the
-   agent's explicit no-docs-impact verdict is recorded on the kickoff issue.
-3. The kickoff issue is closed or updated with the punch list; review
+   agent's explicit no-docs-impact verdict is recorded on the kickoff artifact.
+3. The kickoff artifact is closed or updated with the punch list; review
    findings dispositioned wherever the repo tracks them. **Reconcile the task
    list into it first** — anything still open or discovered late lives only in
    the task list, which is about to vanish with the session. Then clear it.
 4. Verify nothing unmerged — **for every mission worktree, not just the one you
    are standing in**. Enumerate them first (`git worktree list`, cross-checked
-   against the list recorded on the kickoff issue), then for each: `git status
+   against the list recorded on the kickoff artifact), then for each: `git status
    --short` is clean, AND every file the branch touched has landed. A mission
    with three worktrees and one checked is a mission with two unverified
    checkouts.

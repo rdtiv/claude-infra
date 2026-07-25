@@ -181,13 +181,44 @@ section "deletion is complete (orchestrate.md, session-protocol.sh)"
 # setup-prompt.md is generated and covered by the generation check above.
 hit=0
 while IFS= read -r -d '' f; do
-  [ "$f" = "$DIR/settings/merge-hook.mjs" ] && continue
+  # settings/merge-hook.mjs keeps the marker string to strip the settings entry;
+  # settings/retired.md IS the manifest and exists to name retired paths.
+  case "$f" in
+    "$DIR/settings/merge-hook.mjs"|"$DIR/settings/retired.md") continue ;;
+  esac
   if grep -qiE 'orchestrate|session-protocol' "$f"; then
     bad "deletion incomplete — $f still mentions orchestrate/session-protocol"
     hit=1
   fi
-done < <(find "$DIR/commands" "$DIR/hooks" "$DIR/settings" -type f -print0 2>/dev/null)
-[ "$hit" -eq 0 ] && ok "no surviving orchestrate/session-protocol references in loaded doctrine"
+done < <(find "$DIR/commands" "$DIR/hooks" "$DIR/settings" -type f -print0 2>/dev/null
+          # Root-level scripts too: an earlier revision left a dangling /orchestrate
+          # in sync-repo.sh's skip message precisely because they were out of scope.
+          for s in "$DIR"/*.sh "$DIR"/*.mjs; do [ -f "$s" ] && printf '%s\0' "$s"; done)
+[ "$hit" -eq 0 ] && ok "no surviving orchestrate/session-protocol references"
+
+# Deleting a file from hooks/ or commands/ without adding it to the manifest means
+# it lives on forever in every installed machine and synced repo — the exact failure
+# this branch exists to fix. Catch the omission at the point it is made.
+section "retirement manifest covers what this branch deleted"
+mf="$DIR/settings/retired.md"
+if [ ! -f "$mf" ]; then
+  bad "settings/retired.md is missing"
+else
+  gone=$(git -C "$DIR" diff --name-only --diff-filter=D origin/main...HEAD 2>/dev/null \
+         | grep -E '^(hooks|commands)/' || true)
+  miss=0
+  for p in $gone; do
+    grep -qxF "$p" "$mf" || { bad "$p deleted but absent from settings/retired.md"; miss=1; }
+  done
+  [ "$miss" -eq 0 ] && ok "every deleted hook/command is listed in the manifest"
+  # A stale entry is the other direction: still listed, but back in the repo.
+  stale=0
+  while IFS= read -r rel; do
+    case "$rel" in ""|"<!--"*|*"-->"|" "*) continue ;; esac
+    [ -e "$DIR/$rel" ] && { bad "settings/retired.md lists $rel, which still exists"; stale=1; }
+  done < "$mf"
+  [ "$stale" -eq 0 ] && ok "no stale manifest entries"
+fi
 
 section "tier-conditional delegation (mission.md)"
 if grep -q 'Delegation, on Opus' "$DIR/commands/mission.md" \
@@ -351,9 +382,16 @@ if [ -f "$DIR/sync-repo.sh" ]; then
   done
   printf '{\n  "hooks": {\n    "UserPromptSubmit": [{"hooks":[{"type":"command","command":"echo vercel-env-pull"}]}]\n  }\n}\n' \
     > "$DOWN/.claude/settings.json"
-  # Retirement candidates: files with no claude-infra counterpart anymore.
+  # Retirement candidates: named in settings/retired.md.
   printf '# orchestrate (retired)\n' > "$DOWN/.claude/commands/orchestrate.md"
   printf '#!/usr/bin/env bash\necho legacy-banner\n' > "$DOWN/.claude/hooks/session-protocol.sh"
+  # Repo-OWNED artifacts claude-infra knows nothing about. These must SURVIVE.
+  # An earlier revision retired anything without an upstream counterpart, which
+  # deleted exactly these — unrecoverable where .claude/ is gitignored.
+  printf '#!/usr/bin/env bash\necho repo-owned\n' > "$DOWN/.claude/hooks/vercel-env-pull.sh"
+  printf 'repo-owned slash command\n' > "$DOWN/.claude/commands/deploy.md"
+  mkdir -p "$DOWN/.claude/hooks/lib"   # a subdir must not abort the run
+  printf 'shared\n' > "$DOWN/.claude/hooks/lib/shared.sh"
   bodies_before=$(cat "$DOWN"/.claude/agents/*.md | shasum | cut -d' ' -f1)
 
   # --dry-run must retire nothing: recursive checksum identical before and after.
@@ -372,6 +410,21 @@ if [ -f "$DIR/sync-repo.sh" ]; then
     || ok "sync-repo retired commands/orchestrate.md"
   [ -f "$DOWN/.claude/hooks/session-protocol.sh" ] && bad "hooks/session-protocol.sh not retired by sync-repo" \
     || ok "sync-repo retired hooks/session-protocol.sh"
+
+  # The other half, and the more expensive one to get wrong.
+  [ -f "$DOWN/.claude/hooks/vercel-env-pull.sh" ] \
+    && ok "repo-owned hook survived the sync" \
+    || bad "sync-repo DELETED a repo-owned hook — retirement must be manifest-driven"
+  [ -f "$DOWN/.claude/commands/deploy.md" ] \
+    && ok "repo-owned slash command survived the sync" \
+    || bad "sync-repo DELETED a repo-owned command — retirement must be manifest-driven"
+  [ -f "$DOWN/.claude/hooks/lib/shared.sh" ] \
+    && ok "subdirectory under hooks/ survived and did not abort the run" \
+    || bad "a subdirectory under hooks/ was removed or aborted the sync"
+  # The sync must have run to completion, not died partway on the subdir.
+  [ -f "$DOWN/.claude/.claude-infra-version" ] \
+    && ok "sync ran to completion (provenance stamp written)" \
+    || bad "sync aborted before the provenance stamp — later steps never ran"
   grep -q 'session-protocol' "$DOWN/.claude/settings.json" && bad "downstream settings.json still references session-protocol" \
     || ok "sync-repo stripped session-protocol from downstream settings.json"
   grep -q 'vercel-env-pull' "$DOWN/.claude/settings.json" && ok "unrelated UserPromptSubmit hook survived sync retirement" \
