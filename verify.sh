@@ -149,16 +149,61 @@ section "doctrine covers task tracking"
 # tracker" — which reads as a substitute, so missions satisfied the instruction
 # via an issue and never opened the task list. These assertions exist so that
 # silence cannot quietly return.
-for f in commands/mission.md commands/orchestrate.md settings/delegation-rule.md \
-         hooks/session-protocol.sh; do
+#
+# orchestrate.md and session-protocol.sh are gone (folded into mission.md), and
+# delegation-rule.md deliberately no longer mentions the task list — it moved to
+# /mission, which loads on demand. commands/mission.md is the sole surviving home
+# for both assertions.
+for f in commands/mission.md; do
   if grep -qi 'task list' "$DIR/$f"; then ok "$f mentions the task list"
   else bad "$f no longer mentions the task list"; fi
 done
 if grep -qi 'not.*substitute\|does not substitute\|separate obligation\|different artifact' \
-     "$DIR/commands/mission.md" "$DIR/commands/orchestrate.md" "$DIR/settings/delegation-rule.md"; then
+     "$DIR/commands/mission.md"; then
   ok "doctrine distinguishes task list from externalized state"
 else
   bad "doctrine no longer says the task list and externalized state are distinct"
+fi
+
+section "deletion is complete (orchestrate.md, session-protocol.sh)"
+# commands/orchestrate.md and hooks/session-protocol.sh were deleted upstream;
+# their contract folded into commands/mission.md. Nothing under commands/,
+# hooks/, settings/, or README.md should still name them — setup-prompt.md is
+# generated and is covered by the generation check above, not here.
+hit=0
+while IFS= read -r -d '' f; do
+  # settings/merge-hook.mjs is exempt: it IS the retirement mechanism and must
+  # keep the "session-protocol" marker string to strip the stale settings.json
+  # entry on every run (see its own header comment). Mirrors install.sh, which
+  # is outside these directories for the same reason.
+  [ "$f" = "$DIR/settings/merge-hook.mjs" ] && continue
+  if grep -qiE 'orchestrate|session-protocol' "$f"; then
+    bad "deletion incomplete — $f still mentions orchestrate/session-protocol"
+    hit=1
+  fi
+done < <(find "$DIR/commands" "$DIR/hooks" "$DIR/settings" -type f -print0 2>/dev/null
+          [ -f "$DIR/README.md" ] && printf '%s\0' "$DIR/README.md")
+[ "$hit" -eq 0 ] && ok "no surviving orchestrate/session-protocol references"
+
+section "tier-conditional delegation (mission.md)"
+if grep -q 'Delegation, on Opus' "$DIR/commands/mission.md" \
+   && grep -q 'Delegation, on Fable' "$DIR/commands/mission.md"; then
+  ok "commands/mission.md has both an Opus and a Fable delegation block"
+  opus_block=$(sed -n '/Delegation, on Opus/,/Delegation, on Fable/p' "$DIR/commands/mission.md")
+  fable_block=$(sed -n '/Delegation, on Fable/,/^4\./p' "$DIR/commands/mission.md")
+  # Flatten to single lines first — the prose wraps mid-phrase (e.g. "spawn\n
+  # counts low"), which a line-oriented grep against the raw block would miss.
+  opus_flat=$(printf '%s' "$opus_block" | tr '\n' ' ')
+  fable_flat=$(printf '%s' "$fable_block" | tr '\n' ' ')
+  if [ "$opus_block" != "$fable_block" ] \
+     && printf '%s' "$opus_flat" | grep -qiE 'spawn[[:space:]]+count' \
+     && ! printf '%s' "$fable_flat" | grep -qiE 'spawn[[:space:]]+count'; then
+    ok "Opus and Fable delegation blocks differ on spawn counts"
+  else
+    bad "Opus and Fable delegation blocks no longer differ on spawn counts"
+  fi
+else
+  bad "commands/mission.md missing an Opus and/or Fable delegation block"
 fi
 
 section "agent definitions pin both axes"
@@ -235,10 +280,66 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+section "merge-hook remove() (scratch settings.json)"
+MHDIR="$SCRATCH/mergehook"; mkdir -p "$MHDIR"
+MHSET="$MHDIR/settings.json"
+cat > "$MHSET" <<'JSON'
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Agent", "hooks": [{"type": "command", "command": "node \"$HOME/.claude/hooks/agent-model-guard.mjs\""}]}
+    ],
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "bash \"$HOME/.claude/hooks/session-protocol.sh\""}]}
+    ],
+    "UserPromptSubmit": [
+      {"hooks": [{"type": "command", "command": "echo unrelated"}]}
+    ]
+  }
+}
+JSON
+node "$DIR/settings/merge-hook.mjs" --target "$MHSET" --prefix '$HOME' > "$SCRATCH/mh1.log" 2>&1
+grep -q 'session-protocol' "$MHSET" && bad "session-protocol entry survived merge-hook remove()" \
+  || ok "session-protocol entry removed by merge-hook"
+grep -q '"SessionStart"' "$MHSET" && bad "empty SessionStart key left behind" \
+  || ok "empty SessionStart key removed"
+grep -q 'agent-model-guard' "$MHSET" && ok "agent-model-guard present after remove()" \
+  || bad "agent-model-guard missing after remove()"
+grep -q 'git-destruction-guard' "$MHSET" && ok "git-destruction-guard present after remove()" \
+  || bad "git-destruction-guard missing after remove()"
+grep -q 'echo unrelated' "$MHSET" && ok "unrelated UserPromptSubmit entry survived remove()" \
+  || bad "unrelated entry was removed by remove()"
+node -e "JSON.parse(require('fs').readFileSync('$MHSET'))" 2>/dev/null \
+  && ok "settings.json still parses after remove()" || bad "settings.json broken after remove()"
+node "$DIR/settings/merge-hook.mjs" --target "$MHSET" --prefix '$HOME' > "$SCRATCH/mh2.log" 2>&1
+grep -qi 'removed' "$SCRATCH/mh2.log" && bad "second merge-hook run reported further removal" \
+  || ok "second merge-hook run reports no further removal"
+
+# ---------------------------------------------------------------------------
+section "install.sh migrates the old layout (scratch HOME)"
+H4="$SCRATCH/home4"; mkdir -p "$H4/.claude/hooks"
+cp "$DIR/hooks/agent-model-guard.mjs" "$H4/.claude/hooks/" 2>/dev/null
+printf '#!/usr/bin/env bash\necho legacy-banner\n' > "$H4/.claude/hooks/session-protocol.sh"
+cat > "$H4/.claude/settings.json" <<'JSON'
+{
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "bash \"$HOME/.claude/hooks/session-protocol.sh\""}]}
+    ]
+  }
+}
+JSON
+CLAUDE_INFRA_SKIP_VERIFY=1 HOME="$H4" bash "$DIR/install.sh" > "$SCRATCH/i6.log" 2>&1
+[ -f "$H4/.claude/hooks/session-protocol.sh" ] && bad "install.sh left session-protocol.sh in place" \
+  || ok "install.sh removed retired session-protocol.sh"
+grep -q 'session-protocol' "$H4/.claude/settings.json" && bad "settings.json still references session-protocol after install.sh" \
+  || ok "install.sh stripped session-protocol from settings.json"
+
+# ---------------------------------------------------------------------------
 section "sync-repo (scratch downstream copy)"
 if [ -f "$DIR/sync-repo.sh" ]; then
   DOWN="$SCRATCH/downstream"
-  mkdir -p "$DOWN/.claude/agents" "$DOWN/.claude/hooks"
+  mkdir -p "$DOWN/.claude/agents" "$DOWN/.claude/hooks" "$DOWN/.claude/commands"
   # A downstream whose agent BODIES are customized, as the real one is.
   for f in "$DIR"/agents/*.md; do
     n=$(basename "$f")
@@ -246,10 +347,31 @@ if [ -f "$DIR/sync-repo.sh" ]; then
   done
   printf '{\n  "hooks": {\n    "UserPromptSubmit": [{"hooks":[{"type":"command","command":"echo vercel-env-pull"}]}]\n  }\n}\n' \
     > "$DOWN/.claude/settings.json"
+  # Retirement candidates: files with no claude-infra counterpart anymore.
+  printf '# orchestrate (retired)\n' > "$DOWN/.claude/commands/orchestrate.md"
+  printf '#!/usr/bin/env bash\necho legacy-banner\n' > "$DOWN/.claude/hooks/session-protocol.sh"
   bodies_before=$(cat "$DOWN"/.claude/agents/*.md | shasum | cut -d' ' -f1)
+
+  # --dry-run must retire nothing: recursive checksum identical before and after.
+  DOWN_SUM_BEFORE=$(find "$DOWN" -type f -exec shasum {} \; | sort | shasum | cut -d' ' -f1)
+  bash "$DIR/sync-repo.sh" "$DOWN" --dry-run > "$SCRATCH/sync-dry.log" 2>&1
+  DOWN_SUM_AFTER=$(find "$DOWN" -type f -exec shasum {} \; | sort | shasum | cut -d' ' -f1)
+  [ "$DOWN_SUM_BEFORE" = "$DOWN_SUM_AFTER" ] && ok "--dry-run retires nothing (checksum unchanged)" \
+    || bad "--dry-run modified/removed files in the downstream tree"
+  grep -qi 'retired' "$SCRATCH/sync-dry.log" && ok "--dry-run reports the retirements it would make" \
+    || bad "--dry-run did not report retirements"
 
   if bash "$DIR/sync-repo.sh" "$DOWN" > "$SCRATCH/sync.log" 2>&1; then ok "sync-repo exits 0"
   else bad "sync-repo failed: $(tail -3 "$SCRATCH/sync.log")"; fi
+
+  [ -f "$DOWN/.claude/commands/orchestrate.md" ] && bad "orchestrate.md not retired by sync-repo" \
+    || ok "sync-repo retired commands/orchestrate.md"
+  [ -f "$DOWN/.claude/hooks/session-protocol.sh" ] && bad "hooks/session-protocol.sh not retired by sync-repo" \
+    || ok "sync-repo retired hooks/session-protocol.sh"
+  grep -q 'session-protocol' "$DOWN/.claude/settings.json" && bad "downstream settings.json still references session-protocol" \
+    || ok "sync-repo stripped session-protocol from downstream settings.json"
+  grep -q 'vercel-env-pull' "$DOWN/.claude/settings.json" && ok "unrelated UserPromptSubmit hook survived sync retirement" \
+    || bad "unrelated hook lost during sync retirement"
 
   bodies_after=$(sed -n '/^---$/,/^---$/!p' /dev/null 2>/dev/null; \
     for f in "$DOWN"/.claude/agents/*.md; do awk 'f{print} /^---$/{c++} c==2 && !f{f=1}' "$f"; done | shasum | cut -d' ' -f1)
