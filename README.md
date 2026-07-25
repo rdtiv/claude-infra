@@ -1,8 +1,8 @@
 # claude-infra
 
-A portable Claude Code setup that makes multi-agent work **predictable, cheap, and
-safe to run unattended** — by pinning which model each kind of subagent uses, and
-enforcing it in a hook rather than hoping a prompt is followed.
+A portable Claude Code setup that makes multi-agent work **predictable, cost
+effective, and safe to run unattended** — by pinning which model each kind of subagent
+uses, and enforcing it in a hook rather than hoping a prompt is followed.
 
 Install it once per machine. It adds a set of named agent roles, two guardrails, and
 one command that runs a piece of work end to end.
