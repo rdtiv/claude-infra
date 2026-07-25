@@ -199,6 +199,59 @@ done < <(find "$DIR/commands" "$DIR/hooks" "$DIR/settings" -type f -print0 2>/de
 # Deleting a file from hooks/ or commands/ without adding it to the manifest means
 # it lives on forever in every installed machine and synced repo — the exact failure
 # this branch exists to fix. Catch the omission at the point it is made.
+# landed.sh decides whether a worktree is safe to remove. Three prior versions of
+# this logic shipped broken, so it gets a real fixture repo rather than inspection:
+# a branch that modifies, adds, AND deletes, checked before and after a merge.
+section "landed.sh (decommission gate)"
+if [ ! -x "$DIR/landed.sh" ]; then
+  bad "landed.sh missing or not executable"
+else
+  L="$SCRATCH/landed"; mkdir -p "$L"
+  (
+    cd "$L" || exit 1
+    git init -q . && git config user.email t@t && git config user.name t
+    printf 'keep\n' > keep.txt; printf 'edit\n' > edit.txt; printf 'doomed\n' > doomed.txt
+    git add -A && git commit -qm base
+    git branch -q base-ref
+    git checkout -qb feature
+    printf 'edited\n' > edit.txt      # modify
+    printf 'new\n' > added.txt        # add
+    rm doomed.txt                     # DELETE — the case that was broken
+    git add -A && git commit -qm work
+  ) > /dev/null 2>&1
+
+  # Before merging: every touched file should report unlanded.
+  (cd "$L" && bash "$DIR/landed.sh" feature base-ref) > "$SCRATCH/l1.log" 2>&1
+  rc=$?
+  [ "$rc" -ne 0 ] && ok "landed.sh refuses an unmerged branch (exit $rc)" \
+    || bad "landed.sh approved an unmerged branch"
+  grep -q 'UNLANDED: doomed.txt' "$SCRATCH/l1.log" \
+    && ok "landed.sh sees an unmerged DELETION as unlanded" \
+    || bad "landed.sh missed the unmerged deletion"
+
+  # Merge it, then the same call must approve — including the deletion. The old
+  # snippet failed exactly here: rev-parse printed its argument for the missing
+  # path, so two absent files compared unequal and the deletion never cleared.
+  (cd "$L" && git checkout -q base-ref && git merge -q --no-edit feature) > /dev/null 2>&1
+  (cd "$L" && bash "$DIR/landed.sh" feature base-ref) > "$SCRATCH/l2.log" 2>&1
+  rc=$?
+  [ "$rc" -eq 0 ] && ok "landed.sh approves after the merge" \
+    || bad "landed.sh still refuses a fully-merged branch: $(grep UNLANDED "$SCRATCH/l2.log" | head -2)"
+  grep -q 'UNLANDED' "$SCRATCH/l2.log" \
+    && bad "landed.sh reports a landed file as unlanded (deletion regression)" \
+    || ok "a landed deletion compares equal (absent == absent)"
+
+  # Squash-merge shape: content identical, ancestry broken. Ancestry checks fail
+  # here; content checks must not.
+  (
+    cd "$L" && git checkout -qb squash-base base-ref~1 2>/dev/null \
+      && git merge -q --squash feature && git commit -qm squashed
+  ) > /dev/null 2>&1
+  (cd "$L" && bash "$DIR/landed.sh" feature squash-base) > "$SCRATCH/l3.log" 2>&1
+  [ $? -eq 0 ] && ok "landed.sh approves a squash-merged branch (ancestry broken, content equal)" \
+    || bad "landed.sh refuses a squash-merged branch — the original false positive"
+fi
+
 section "retirement manifest covers what this branch deleted"
 mf="$DIR/settings/retired.md"
 if [ ! -f "$mf" ]; then
