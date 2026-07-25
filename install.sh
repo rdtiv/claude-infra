@@ -12,6 +12,18 @@ cp "$DIR"/hooks/* "$HOME/.claude/hooks/"
 cp "$DIR"/commands/*.md "$HOME/.claude/commands/"
 echo "agents, hooks, commands copied to ~/.claude"
 
+# Retire artifacts deleted upstream. Copying is not enough: a file removed from
+# this repo stays on every machine that installed it before the removal, and in
+# the hook case it stays wired in settings.json and fails at every session start.
+# merge-hook.mjs (below) strips the matching settings entries.
+for retired in "$HOME/.claude/hooks/session-protocol.sh" \
+               "$HOME/.claude/commands/orchestrate.md"; do
+  if [ -e "$retired" ]; then
+    rm -f "$retired"
+    echo "retired: ${retired#"$HOME"/}"
+  fi
+done
+
 node "$DIR/settings/merge-hook.mjs"
 
 # Doctrine lives in an installer-OWNED rules file, overwritten wholesale every
