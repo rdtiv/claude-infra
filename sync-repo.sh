@@ -135,6 +135,7 @@ TARGET_COMMANDS="$TARGET_CLAUDE/commands"
 WRITTEN=()
 SKIPPED=()
 WARNINGS=()
+RETIRED=()
 
 echo "=== sync-repo: $CI_DIR -> $REPO ==="
 if [ "$DRY_RUN" -eq 1 ]; then
@@ -164,6 +165,19 @@ for f in "$CI_DIR"/hooks/*; do
     cp "$f" "$dest"
   fi
 done
+# Retire anything downstream with no claude-infra counterpart — a hook deleted
+# upstream (session-protocol.sh) must not live on forever in every synced repo.
+if [ -d "$TARGET_HOOKS" ]; then
+  for f in "$TARGET_HOOKS"/*; do
+    [ -e "$f" ] || continue
+    name="$(basename "$f")"
+    if [ ! -e "$CI_DIR/hooks/$name" ]; then
+      echo "  $name: retired (no longer in claude-infra)"
+      RETIRED+=("hooks/$name")
+      [ "$DRY_RUN" -eq 0 ] && rm -f "$f"
+    fi
+  done
+fi
 echo
 
 # ---------------------------------------------------------------------------
@@ -375,6 +389,19 @@ if [ -d "$TARGET_COMMANDS" ] || [ "$WITH_COMMANDS" -eq 1 ]; then
       cp "$f" "$dest"
     fi
   done
+  # Retire anything downstream with no claude-infra counterpart — orchestrate.md
+  # must not live on forever in every synced repo now that it is deleted upstream.
+  if [ -d "$TARGET_COMMANDS" ]; then
+    for f in "$TARGET_COMMANDS"/*.md; do
+      [ -e "$f" ] || continue
+      name="$(basename "$f")"
+      if [ ! -e "$CI_DIR/commands/$name" ]; then
+        echo "  $name: retired (no longer in claude-infra)"
+        RETIRED+=("commands/$name")
+        [ "$DRY_RUN" -eq 0 ] && rm -f "$f"
+      fi
+    done
+  fi
 else
   echo "  .claude/commands/ does not exist downstream and --with-commands was not passed."
   echo "  Skipping — cloud sessions in this repo will not see /mission or /orchestrate."
@@ -431,6 +458,8 @@ echo "written (${#WRITTEN[@]}):"
 for w in "${WRITTEN[@]:-}"; do [ -n "$w" ] && echo "  - $w"; done
 echo "skipped/no-op (${#SKIPPED[@]}):"
 for s in "${SKIPPED[@]:-}"; do [ -n "$s" ] && echo "  - $s"; done
+echo "retired (${#RETIRED[@]}):"
+for r in "${RETIRED[@]:-}"; do [ -n "$r" ] && echo "  - $r"; done
 echo "warnings (${#WARNINGS[@]}):"
 for w in "${WARNINGS[@]:-}"; do [ -n "$w" ] && echo "  - $w"; done
 echo
