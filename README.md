@@ -9,6 +9,54 @@ one command that runs a piece of work end to end.
 
 ---
 
+## Background: the Claude 5 generation
+
+Skip this if you already work with these models daily. It's here because the design
+below only makes sense against what changed in this generation.
+
+| Model | Context | $/M in | $/M out | Shape of work |
+|---|---|---|---|---|
+| **Fable 5** | 1M | $10 | $50 | The hardest, longest-running, most ambiguous problems |
+| **Opus 5** | 1M | $5 | $25 | Complex agentic coding and enterprise work |
+| **Sonnet 5** | 1M | $3 | $15 | Near-Opus quality on coding and agentic work, at Sonnet cost |
+| **Haiku 4.5** | 200K | $1 | $5 | Fast and cheap for simple, well-bounded tasks |
+
+*(Haiku has no 5-generation release yet, so the fast tier is still 4.5 — worth knowing,
+since it also means a smaller context window than the rest.)*
+
+Four changes matter for anything that coordinates subagents.
+
+**Reasoning depth became a dial, and it is now the main cost lever.** Earlier models
+took a fixed thinking-token budget. That's gone — 5-generation models reject it — and
+depth is set with an `effort` level from `low` to `max`, defaulting to `high`. This is
+a bigger deal than it sounds: near the top of the ladder, effort moves more tokens than
+switching model tier does. Two runs on the same model at different effort can differ in
+cost by more than the gap between two adjacent models.
+
+**Cheap models got good enough to be real workers.** Sonnet 5 lands close to Opus on
+coding and agentic tasks. Handing execution to a cheaper tier used to be a real quality
+trade; now it mostly isn't, provided the work has already been specified. That single
+fact is what makes a planner/worker split worth building around rather than just
+tolerating.
+
+**They behave differently, and in opposite directions.** Opus 5 delegates to subagents
+*readily* — the previous generation under-reached and had to be pushed, this one needs
+a cap. Fable 5 goes further and is genuinely good at sustaining many parallel
+subagents, so it wants the opposite advice: delegate freely, asynchronously, and keep
+them long-lived. Guidance written for one is wrong for the other.
+
+**They need less instruction, not more.** Anthropic removed over 80% of Claude Code's
+system prompt for these models with no measured loss, because they handle by judgment
+what earlier models needed spelled out. Prompts and rule files tuned for a previous
+generation tend to be *over*-prescriptive now, and can make output worse rather than
+better.
+
+The last two are why this repo enforces things in hooks and keeps its prose short:
+behavior guidance ages badly across a model generation, and mechanical constraints
+don't.
+
+---
+
 ## Why
 
 Claude Code lets a session spawn subagents. Left alone, three things go wrong.
@@ -31,10 +79,12 @@ once, that tree may hold someone else's uncommitted work.
 The fix for all three is the same shape: decide once, encode it in a file, and let a
 hook enforce it. Prose in a prompt is a suggestion; a `PreToolUse` hook is not.
 
-**On cost, honestly.** The spread is roughly 1.7× (opus→sonnet) to 3.3×
-(fable→sonnet) — real, but not an order of magnitude. The more durable reasons to pin
-are reproducibility, and the fact that frontier and worker tiers draw on separate
-rate-limit buckets, so pinned workers never contend with the orchestrator's own turns.
+**On cost, honestly.** Read the table above and the spread is about 1.7× from Opus to
+Sonnet, 3.3× from Fable — real, but not the order of magnitude people assume. The more
+durable reasons to pin are reproducibility, and the fact that the tiers draw on
+separate rate-limit buckets, so pinned workers never contend with the orchestrator's
+own turns. Effort compounds it: an unpinned worker can be running several times deeper
+than the job needs, on top of running on the wrong model.
 
 This mirrors what others have measured independently: a frontier model planning with
 cheaper models executing beats frontier-everywhere on both quality and cost, because
