@@ -284,10 +284,26 @@ if [ -f "$DIR/sync-repo.sh" ]; then
   [ "$hits" -eq 0 ] && ok "--scan ignores nested mission worktrees" \
     || bad "--scan counted $hits mission worktree(s) as installs"
   if bash "$DIR/sync-repo.sh" "$DOWN/.claude/worktrees/wt-fake" > "$SCRATCH/wt.log" 2>&1; then
-    bad "syncing into a mission worktree was allowed"
+    bad "syncing into a worktree was allowed without --allow-worktree"
   else
-    ok "syncing into a mission worktree is refused"
+    ok "syncing into a worktree is refused by default"
   fi
+  # ...but permitted deliberately, which is the recommended flow — syncing the
+  # main checkout would mean committing from the integration ground.
+  if bash "$DIR/sync-repo.sh" "$DOWN/.claude/worktrees/wt-fake" --allow-worktree \
+       > "$SCRATCH/wtok.log" 2>&1; then
+    ok "--allow-worktree permits a deliberate sync worktree"
+  else
+    bad "--allow-worktree still refused: $(tail -2 "$SCRATCH/wtok.log")"
+  fi
+
+  # The provenance stamp must be in the .gitignore whitelist the tool checks for,
+  # or it is written and never tracked.
+  printf '.claude/*\n!.claude/agents/\n!.claude/hooks/\n!.claude/commands/\n' > "$DOWN/.gitignore"
+  bash "$DIR/sync-repo.sh" "$DOWN" --dry-run > "$SCRATCH/gi.log" 2>&1
+  grep -q 'claude-infra-version' "$SCRATCH/gi.log" \
+    && ok ".gitignore check flags the missing provenance-stamp whitelist" \
+    || bad ".gitignore check ignores the provenance stamp (it would go untracked)"
 else
   bad "sync-repo.sh missing"
 fi

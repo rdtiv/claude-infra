@@ -60,8 +60,17 @@ copy under `.claude/`. Use the sync tool rather than copying by hand:
 ```sh
 ./sync-repo.sh --scan ~/dev        # which repos have an install, and what version
 ./sync-repo.sh ~/dev/myrepo --dry-run
-./sync-repo.sh ~/dev/myrepo
+
+# Recommended: sync into a worktree, so the commit doesn't land on the
+# integration ground (the mission doctrine forbids feature commits there).
+git -C ~/dev/myrepo worktree add .claude/worktrees/wt-infra-sync -b chore/sync origin/main
+./sync-repo.sh ~/dev/myrepo/.claude/worktrees/wt-infra-sync --allow-worktree
+# commit + PR from that worktree, then remove it
 ```
+
+Pointing it at a worktree without `--allow-worktree` is refused, because the
+common case for that is aiming at a live *mission* worktree by mistake — those
+are removed at `/mission end`, so the sync would be thrown away.
 
 It splits the tree by who owns what. **Hooks** are pure mechanism and get
 overwritten verbatim. **Agent frontmatter** (`model:`/`effort:`) is owned here

@@ -7,8 +7,14 @@
 # only reported on. Hooks are pure mechanism and are overwritten verbatim.
 #
 # Usage:
-#   ./sync-repo.sh <repo-path> [--dry-run] [--with-commands]
+#   ./sync-repo.sh <repo-path> [--dry-run] [--with-commands] [--allow-worktree]
 #   ./sync-repo.sh --scan <dir>
+#
+# Recommended flow — sync into a worktree, not the main checkout, so the commit
+# does not happen on the integration ground:
+#   git -C <repo> worktree add .claude/worktrees/wt-infra-sync -b chore/sync origin/main
+#   ./sync-repo.sh <repo>/.claude/worktrees/wt-infra-sync --allow-worktree
+#   # commit + PR from that worktree, then remove it
 #
 # Never commits, never pushes — always leaves a dirty tree so the change lands
 # through the target repo's own PR gate.
@@ -71,10 +77,12 @@ shift
 
 DRY_RUN=0
 WITH_COMMANDS=0
+ALLOW_WORKTREE=0
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=1 ;;
     --with-commands) WITH_COMMANDS=1 ;;
+    --allow-worktree) ALLOW_WORKTREE=1 ;;
     *)
       echo "error: unknown argument: $arg" >&2
       exit 1
@@ -88,15 +96,35 @@ if [ ! -d "$REPO_ARG" ]; then
 fi
 REPO="$(cd "$REPO_ARG" && pwd)"
 
-# Refuse to sync into a mission worktree. Those are ephemeral — decommissioned at
-# /mission end — so anything written here is thrown away, and the operator almost
-# certainly meant the repo the worktree belongs to.
+# Syncing into a worktree is refused BY DEFAULT but permitted with
+# --allow-worktree, because the two cases look identical on disk and mean
+# opposite things:
+#
+#   accidental — pointing at a live MISSION worktree. Ephemeral, removed at
+#     /mission end, so the sync is thrown away. This is what the default catches.
+#   deliberate — a worktree provisioned specifically to carry the sync PR. This
+#     is the RECOMMENDED flow: the alternative is syncing into the main checkout
+#     and committing from there, which the mission doctrine forbids ("the main
+#     checkout is the integration ground; feature commits never happen there").
+#
+# An earlier revision refused both, which forced every sync through the main
+# checkout and put the tool in direct conflict with the doctrine it ships beside.
 case "$REPO" in
   */.claude/worktrees/*)
-    echo "error: $REPO is a mission worktree, not a repo checkout." >&2
-    echo "       Worktrees are decommissioned at /mission end; sync the repo instead:" >&2
-    echo "       ${REPO%%/.claude/worktrees/*}" >&2
-    exit 1
+    if [ "$ALLOW_WORKTREE" -eq 0 ]; then
+      echo "error: $REPO is a worktree, not a repo checkout." >&2
+      echo "" >&2
+      echo "  If this is a live MISSION worktree, sync the repo instead:" >&2
+      echo "      $0 ${REPO%%/.claude/worktrees/*}" >&2
+      echo "" >&2
+      echo "  If you provisioned this worktree to carry the sync PR, re-run with" >&2
+      echo "  --allow-worktree. That is the recommended flow, since syncing the" >&2
+      echo "  main checkout means committing from it." >&2
+      exit 1
+    fi
+    echo "note: syncing into a worktree (--allow-worktree). Commit and PR from here;" >&2
+    echo "      do not let /mission end remove it before the PR is open." >&2
+    echo >&2
     ;;
 esac
 TARGET_CLAUDE="$REPO/.claude"
@@ -361,7 +389,11 @@ echo "--- .gitignore ---"
 GITIGNORE="$REPO/.gitignore"
 if [ -f "$GITIGNORE" ] && grep -qE '^\.claude/\*[[:space:]]*$' "$GITIGNORE"; then
   missing=()
-  for pat in '!.claude/agents/' '!.claude/hooks/' '!.claude/commands/'; do
+  # .claude-infra-version belongs in this list: a blanket .claude/* sweeps the
+  # provenance stamp up too, so it gets written but never tracked — every fresh
+  # clone then reports "unstamped" and --scan quietly lies about what is deployed.
+  for pat in '!.claude/agents/' '!.claude/hooks/' '!.claude/commands/' \
+             '!.claude/.claude-infra-version'; do
     grep -qF "$pat" "$GITIGNORE" || missing+=("$pat")
   done
   if [ "${#missing[@]}" -gt 0 ]; then
