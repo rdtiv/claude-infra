@@ -53,7 +53,7 @@ mechanically enforced.
    swap the hook command to an absolute node path).
 
 **Repo-level install (optional, per repository):** for repos that also run
-cloud sessions (where `~/.claude` doesn't exist), copy the same six agent
+cloud sessions (where `~/.claude` doesn't exist), copy the same eight agent
 files + the hooks into the repo's `.claude/agents/` and `.claude/hooks/`, add
 the same `PreToolUse` blocks to the repo's `.claude/settings.json`, whitelist
 `.claude/agents/` and `.claude/hooks/` in `.gitignore` if `.claude/*` is
@@ -87,6 +87,18 @@ agent bodies.
 
 ```markdown
 <!-- include:agents/scout.md -->
+```
+
+### `~/.claude/agents/refuter.md`
+
+```markdown
+<!-- include:agents/refuter.md -->
+```
+
+### `~/.claude/agents/reproducer.md`
+
+```markdown
+<!-- include:agents/reproducer.md -->
 ```
 
 ### `~/.claude/agents/architect.md`
@@ -197,7 +209,11 @@ start) and confirm the new types appear when spawning agents.
   `model:` on a fork looks compliant but has no effect — hence the hard deny.
 - The hook **fails open** on unparseable input and only evaluates
   `tool_name === "Agent"`; Workflow-internal `agent()` calls don't pass
-  through PreToolUse — pin models inside the workflow scripts themselves.
+  through PreToolUse. Inside a workflow script, pin with `agentType:` —
+  **not** `model:`. Measured: `agentType: "finder"` resolves to sonnet at
+  `effort=medium` per its definition, while `model: "sonnet"` alone still
+  runs at the session's effort, so a bare `model:` pin leaks the axis no
+  hook can observe.
 - Session-start language: `/model fable` (you are in the loop clarifying unknowns)
   or `/model opus` (decomposable, runs unattended), then `/mission <issue# | pr# |
   description>` for anything warranting a branch and a PR.

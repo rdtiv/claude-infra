@@ -132,6 +132,10 @@ TARGET_HOOKS="$TARGET_CLAUDE/hooks"
 TARGET_AGENTS="$TARGET_CLAUDE/agents"
 TARGET_COMMANDS="$TARGET_CLAUDE/commands"
 TARGET_SCRIPTS="$TARGET_CLAUDE/scripts"
+TARGET_WORKFLOWS="$TARGET_CLAUDE/workflows"
+
+# Marker claiming a workflow file as claude-infra-owned. See the workflows/ block.
+WF_MARKER="claude-infra-owned"
 
 WRITTEN=()
 SKIPPED=()
@@ -145,7 +149,7 @@ RETIRED=()
 # artifacts: a repo's own hook, its own slash commands. Absence from claude-infra is
 # not evidence of retirement, and where .claude/ is gitignored the deletion is
 # unrecoverable. Only paths named in the manifest are removed.
-retired_paths() { # $1 = subdir filter ("hooks" | "commands")
+retired_paths() { # $1 = subdir filter ("hooks" | "commands" | "scripts" | "workflows")
   local manifest="$CI_DIR/settings/retired.md" line
   [ -f "$manifest" ] || return 0
   while IFS= read -r line; do
@@ -156,7 +160,7 @@ retired_paths() { # $1 = subdir filter ("hooks" | "commands")
   done < "$manifest"
 }
 
-retire_from() { # $1 = subdir ("hooks" | "commands")
+retire_from() { # $1 = subdir ("hooks" | "commands" | "scripts" | "workflows")
   local rel dest
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
@@ -227,6 +231,51 @@ if [ -d "$CI_DIR/scripts" ]; then
     fi
   done
   retire_from "scripts"
+else
+  echo "  (none in claude-infra)"
+fi
+echo
+
+# ---------------------------------------------------------------------------
+# 1c. Workflows — copy, but never clobber a workflow this repo does not own.
+#
+# .claude/workflows/ is SHARED GROUND in a way hooks/ and scripts/ are not: it is
+# a general Claude Code directory a downstream repo may already be using for its
+# own dynamic workflows. The loop below is source-driven, so a repo's own workflow
+# with no counterpart here is never visited and never removed — that is what makes
+# every category in this script additive, and it is why retirement is manifest-
+# driven rather than "delete what I don't recognise" (see retired_paths above).
+#
+# What source-driven does NOT cover is a NAME COLLISION. A plain `cp` would
+# overwrite a repo-owned file that merely shares our filename, and report it as
+# routine staleness. So ownership is explicit: we write only when the destination
+# is absent or already carries WF_MARKER on its first line. Anything else belongs
+# to the repo, and we warn instead of writing — the same ownership split that
+# keeps agent BODIES repo-owned and reports them as drift.
+# ---------------------------------------------------------------------------
+echo "--- workflows ---"
+if [ -d "$CI_DIR/workflows" ]; then
+  for f in "$CI_DIR"/workflows/*.js; do
+    [ -f "$f" ] || continue
+    name="$(basename "$f")"
+    dest="$TARGET_WORKFLOWS/$name"
+    if [ -f "$dest" ] && cmp -s "$f" "$dest"; then
+      echo "  $name: already up to date"
+      continue
+    fi
+    if [ -f "$dest" ] && ! head -n 1 "$dest" | grep -q "$WF_MARKER"; then
+      echo "  $name: exists downstream and is NOT claude-infra-owned — left untouched"
+      WARNINGS+=("workflows/$name exists downstream without the '$WF_MARKER' marker; left untouched — delete it to accept the claude-infra version")
+      continue
+    fi
+    [ -f "$dest" ] && echo "  $name: updated (was stale)" || echo "  $name: created"
+    WRITTEN+=("workflows/$name")
+    if [ "$DRY_RUN" -eq 0 ]; then
+      mkdir -p "$TARGET_WORKFLOWS"
+      cp "$f" "$dest"
+    fi
+  done
+  retire_from "workflows"
 else
   echo "  (none in claude-infra)"
 fi
@@ -460,7 +509,8 @@ if [ -f "$GITIGNORE" ] && grep -qE '^\.claude/\*[[:space:]]*$' "$GITIGNORE"; the
   # provenance stamp up too, so it gets written but never tracked — every fresh
   # clone then reports "unstamped" and --scan quietly lies about what is deployed.
   for pat in '!.claude/agents/' '!.claude/hooks/' '!.claude/commands/' \
-             '!.claude/scripts/' '!.claude/.claude-infra-version'; do
+             '!.claude/scripts/' '!.claude/workflows/' \
+             '!.claude/.claude-infra-version'; do
     grep -qF "$pat" "$GITIGNORE" || missing+=("$pat")
   done
   if [ "${#missing[@]}" -gt 0 ]; then

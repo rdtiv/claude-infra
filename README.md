@@ -96,13 +96,15 @@ follows it.
 
 ## What you get
 
-**Six named agent roles**, each pinning both its model and its reasoning effort:
+**Eight named agent roles**, each pinning both its model and its reasoning effort:
 
 | Role | Model | Effort | For |
 |---|---|---|---|
 | `scout` | sonnet | medium | Read-only recon — map a subsystem, find call sites |
 | `finder` | sonnet | medium | Hunt one angle of a diff, report every candidate |
 | `implementor` | sonnet | medium | Execute one written work package |
+| `refuter` | sonnet | medium | Cheap adversarial screen — kill what the code refutes |
+| `reproducer` | sonnet | high | Make a confirmed finding actually happen, in a sandbox |
 | `architect` | opus | xhigh | Turn a goal into implementor-ready specs |
 | `verifier` | opus | high | Adversarially judge one finding against the code |
 | `documentarian` | opus | high | Mission-end documentation gate |
@@ -249,8 +251,11 @@ which is exactly why they're never both in context.
 - **A commit message describing destructive git gets denied** from a non-scratch
   directory. The guard inspects the command text, and an incident write-up contains
   exactly those words. Use `git commit -F <file>` and `gh pr --body-file <file>`.
-- Workflow-internal `agent()` calls bypass hooks entirely — pin models inside the
-  workflow script.
+- Workflow-internal `agent()` calls bypass hooks entirely — so use a pinned
+  `agentType:` inside the workflow script, **not** `model:`. Measured: `agentType:
+  "finder"` resolves to sonnet at `effort=medium` per its definition, while
+  `model: "sonnet"` alone still runs at the *session's* effort. A bare `model:` pin
+  carries one axis and silently leaks the other.
 - The guard fails open on unparseable input, and only ever evaluates the Agent tool.
 
 ---
@@ -259,10 +264,12 @@ which is exactly why they're never both in context.
 
 | Path | What |
 |---|---|
-| `~/.claude/agents/` | The six roles above, each pinning model and effort in frontmatter |
+| `~/.claude/agents/` | The eight roles above, each pinning model and effort in frontmatter |
 | `~/.claude/hooks/agent-model-guard.mjs` | Reads the spawned agent's own definition and denies unless it pins an approved `model:` and an explicit `effort:`. Also denies inheriting spawns and `subagent_type: fork` |
 | `~/.claude/hooks/git-destruction-guard.mjs` | Denies `reset --hard`, `clean -f`, `checkout .`, `checkout <ref> -- <path>`, non-staged `restore`, `stash drop` outside `.claude/worktrees/` and scratch paths. Matches quote-stripped text, so merely *mentioning* those commands in a string is fine |
 | `~/.claude/commands/mission.md` | `/mission` and `/mission end` — the full lifecycle |
+| `~/.claude/commands/review-pinned.md` | `/review-pinned <level> [target]` — invokes the pinned reviewer by name, so the workflow is chosen by the command rather than by model judgement |
+| `~/.claude/workflows/` | Dynamic workflows the harness discovers by name — currently `code-review-pinned.js`. Unlike the other directories this one is **shared ground**: it is a general Claude Code location you may already use, so only files carrying the `claude-infra-owned` marker on line 1 are ever overwritten, and anything else is left untouched with a warning |
 | `~/.claude/scripts/` | Executables the doctrine tells a session to run — currently `landed.sh`, the check that decides whether a worktree is safe to remove. Hooks are what the harness runs for you; these are what you run |
 | `~/.claude/rules/claude-infra-delegation.md` | The short always-loaded doctrine. Installer-owned and overwritten every run; auto-loaded at user scope, so it needs no entry in `CLAUDE.md` |
 | `~/.claude/settings.json` | Hook wiring, merged into whatever is already there |
@@ -290,7 +297,15 @@ repo** — its own lint commands, house review conventions — and are never wri
 reported as drift. `settings.json` is merged, so unrelated hooks survive. Files removed
 upstream are retired downstream. `.gitignore` is reported on but never edited: if
 `.claude/*` is ignored, it needs `!.claude/agents/`, `!.claude/hooks/`,
-`!.claude/commands/`, `!.claude/scripts/`, and `!.claude/.claude-infra-version`.
+`!.claude/commands/`, `!.claude/scripts/`, `!.claude/workflows/`, and
+`!.claude/.claude-infra-version`.
+
+**Your own workflows are safe.** Every copy loop is source-driven — it walks *this*
+repo's files, so a workflow with no counterpart here is never visited and never
+removed, and deletion only ever happens for paths named explicitly in
+`settings/retired.md`. The one case that needed more than that is a name collision,
+which the ownership marker handles: a same-named workflow you wrote is reported and
+left alone rather than overwritten.
 
 The tool never commits. It leaves a dirty tree so the change lands through that repo's
 own review gate.
@@ -303,12 +318,14 @@ own review gate.
 ./verify.sh          # also run automatically by ./install.sh
 ```
 
-117 checks: both guard behavior matrices, every agent pinning both axes, install and
+131 checks: both guard behavior matrices, every agent pinning both axes, install and
 doctrine propagation including idempotency and the migration from older layouts,
-`setup-prompt.md` matching a fresh generation, and `sync-repo.sh` against a downstream
-that carries both retired artifacts *and* its own repo-owned hooks and commands — the
-latter must survive a sync untouched. Everything runs against scratch copies; it never
-writes to `$HOME`, to this repo, or to any downstream.
+`setup-prompt.md` matching a fresh generation, the shipped workflow parsing and not
+shadowing the built-in `code-review`, and `sync-repo.sh` against a downstream that
+carries both retired artifacts *and* its own repo-owned hooks, commands and workflows
+— the latter must survive a sync untouched, including a workflow that collides with
+ours by name. Everything runs against scratch copies; it never writes to `$HOME`, to
+this repo, or to any downstream.
 
 ---
 

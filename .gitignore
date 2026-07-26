@@ -1,1 +1,6 @@
 .DS_Store
+
+# Mission worktrees live at .claude/worktrees/ per commands/mission.md. They are
+# checkouts of this same repo, so leaving them untracked means a `git add -A` on
+# the integration ground stages an entire second copy of the tree.
+.claude/

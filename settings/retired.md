@@ -9,9 +9,14 @@
   which is the opposite of the ownership split the sync tool exists to respect, and
   unrecoverable where .claude/ is gitignored. Absence is not evidence of retirement.
 
-  WHEN YOU DELETE A FILE FROM hooks/ OR commands/, ADD IT HERE.
+  WHEN YOU DELETE A FILE FROM hooks/, commands/, scripts/ OR workflows/, ADD IT HERE.
   verify.sh compares this list against the files your branch deletes and fails if
   one is missing, so the omission cannot ship silently.
+
+  ONLY paths this repo actually installs belong here. A file some downstream repo
+  authored for itself is not ours to retire, even when it sits at a path we would
+  otherwise write — listing it would turn this manifest into the very "delete what
+  I don't recognise" behaviour the paragraph above exists to prevent.
 
   Format: one repo-relative path per line. Blank lines and <!-- --> comments ignored.
 -->
