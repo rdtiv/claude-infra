@@ -318,7 +318,7 @@ own review gate.
 ./verify.sh          # also run automatically by ./install.sh
 ```
 
-139 checks: both guard behavior matrices, every agent pinning both axes, install and
+141 checks: both guard behavior matrices, every agent pinning both axes, install and
 doctrine propagation including idempotency and the migration from older layouts,
 `setup-prompt.md` matching a fresh generation, the shipped workflow parsing and not
 shadowing the built-in `code-review`, and `sync-repo.sh` against a downstream that

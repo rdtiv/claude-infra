@@ -181,7 +181,13 @@ retire_from() { # $1 = subdir ("hooks" | "commands" | "scripts" | "workflows")
     esac
     echo "  $(basename "$rel"): retired (listed in settings/retired.md)"
     RETIRED+=("$rel")
-    [ "$DRY_RUN" -eq 0 ] && rm -f "$dest"
+    # An `if`, not `[ ... ] && cmd`. As the last statement of the loop body this
+    # sets the loop's — and therefore the function's — exit status, so under
+    # `set -euo pipefail` a false test made `retire_from` return 1 and aborted the
+    # whole run. --dry-run took that branch by definition, so the preview the
+    # README tells operators to run first died silently at the first retirement
+    # candidate and never reached the summary.
+    if [ "$DRY_RUN" -eq 0 ]; then rm -f "$dest"; fi
   done < <(retired_paths "$1")
 }
 

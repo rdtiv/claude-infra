@@ -644,6 +644,16 @@ if [ -f "$DIR/sync-repo.sh" ]; then
   # --dry-run must retire nothing: recursive checksum identical before and after.
   DOWN_SUM_BEFORE=$(find "$DOWN" -type f -exec shasum {} \; | sort | shasum | cut -d' ' -f1)
   bash "$DIR/sync-repo.sh" "$DOWN" --dry-run > "$SCRATCH/sync-dry.log" 2>&1
+  dry_rc=$?
+  # Exit code AND completion, not just "nothing changed". A dry run that dies at
+  # the first retirement candidate also leaves the tree unchanged, so the checksum
+  # assertion below passes for the wrong reason — which is exactly how a real
+  # abort-on-exit-1 bug survived here undetected.
+  [ "$dry_rc" -eq 0 ] && ok "--dry-run exits 0" \
+    || bad "--dry-run exited $dry_rc — it aborted partway and never finished the preview"
+  grep -q '=== summary ===' "$SCRATCH/sync-dry.log" \
+    && ok "--dry-run ran to completion (reached the summary)" \
+    || bad "--dry-run never reached the summary — it died before previewing later sections"
   DOWN_SUM_AFTER=$(find "$DOWN" -type f -exec shasum {} \; | sort | shasum | cut -d' ' -f1)
   [ "$DOWN_SUM_BEFORE" = "$DOWN_SUM_AFTER" ] && ok "--dry-run retires nothing (checksum unchanged)" \
     || bad "--dry-run modified/removed files in the downstream tree"

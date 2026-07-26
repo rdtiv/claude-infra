@@ -114,7 +114,12 @@ const VERDICT_SCHEMA = {
   },
 }
 const REPRO_SCHEMA = {
-  type: "object", required: ["outcome", "detail"],
+  // gitStatus* are REQUIRED, not optional. The tripwire is the only mechanism
+  // that can catch a reproducer writing inside the repo, and the orchestrator's
+  // dirty-tree check is skipped whenever the fields are absent — so leaving them
+  // optional let an agent satisfy the schema by simply omitting the evidence
+  // against itself. Containment is prose; this is the part that is enforced.
+  type: "object", required: ["outcome", "detail", "gitStatusBefore", "gitStatusAfter"],
   properties: {
     outcome: { enum: ["REPRODUCED", "CONTRADICTED", "INCONCLUSIVE"] },
     detail: { type: "string", description: "what you did and what it showed — for CONTRADICTED, state how you know the harness would have caught the behaviour had it occurred" },
@@ -140,7 +145,7 @@ const REPORT_SCHEMA = {
 
 const stats = {
   level: LEVEL, finders: 0, candidates: 0, overCap: 0, offScope: 0,
-  screenAgents: 0, screenRefuted: 0, controlSample: 0, controlDisagreements: 0,
+  screenAgents: 0, screenRefuted: 0, screenUnjudged: 0, controlSample: 0, controlDisagreements: 0,
   verifierAgents: 0, agentFailures: 0, agentErrors: 0, unverified: 0, droppedVerdicts: 0,
   reproAttempted: 0, reproduced: 0, contradicted: 0, inconclusive: 0, treeDirty: false,
   badDecisions: 0, backfilled: 0, reported: 0,
@@ -288,9 +293,15 @@ const SCREEN_CFG = {
   prompt: g => SCOPE_BLOCK + "\n## Claim at " + loc(g[0]) + "\n\n" +
     g.map((c, i) => "[" + i + "] " + c.summary).join("\n") +
     "\n\nJudge this claim against the actual code. You are seeing it alone and on purpose: you are not told who raised it, why, or what else was said about this line. Return REFUTED only with a quoted construction from the code; otherwise SURVIVES.\n\nStructured output only.",
-  apply: (c, v) => v && v.verdict === "REFUTED"
-    ? { ...c, screen: "REFUTED", screenEvidence: v.evidence || "" }
-    : { ...c, screen: "SURVIVES" },
+  // Three outcomes, not two. Collapsing "the refuter judged this and let it live"
+  // into the same value as "the refuter never returned" made a failed screen
+  // indistinguishable from a passed one, while judgeGroup's log claimed the
+  // candidate had been "retained and flagged" — a flag this stage never set.
+  apply: (c, v) => !v
+    ? { ...c, screen: "SURVIVES", screenUnjudged: true }
+    : v.verdict === "REFUTED"
+      ? { ...c, screen: "REFUTED", screenEvidence: v.evidence || "" }
+      : { ...c, screen: "SURVIVES", screenEvidence: v.evidence || "" },
 }
 const VERIFY_CFG = {
   agentType: "verifier", phase: "Verify", schema: VERDICT_SCHEMA,
@@ -433,7 +444,13 @@ if (P.repro > 0 && !NO_EXEC) {
     for (const item of results.filter(Boolean)) {
       const { c, r } = item
       if (!r) { stats.inconclusive++; stats.agentFailures++; log("repro " + loc(c) + ": agent returned nothing"); continue }
-      if (r.gitStatusBefore !== undefined && r.gitStatusAfter !== undefined && r.gitStatusBefore !== r.gitStatusAfter) {
+      // Fail CLOSED. Absent tripwire output is not evidence of a clean tree, it
+      // is absence of evidence — and the agent that skipped the check is exactly
+      // the one whose containment you cannot vouch for.
+      if (r.gitStatusBefore === undefined || r.gitStatusAfter === undefined) {
+        stats.treeDirty = true
+        log("!! repro " + loc(c) + " returned no tripwire output — cannot confirm it left the tree clean")
+      } else if (r.gitStatusBefore !== r.gitStatusAfter) {
         stats.treeDirty = true
         log("!! repro " + loc(c) + " changed the working tree — run `git status` before trusting this run")
       }
@@ -473,6 +490,7 @@ if (surviving.length === 0) {
 // ── Synthesize ────────────────────────────────────────────────────────────────
 phase("Synthesize")
 stats.unverified = surviving.filter(c => c.unverified).length
+stats.screenUnjudged = surviving.filter(c => c.screenUnjudged).length
 const ranked = surviving.slice().sort(byRank)
 const report = await safeAgent(
   "You are acting as a MERGE JUDGE. Your standing instructions as a verifier — the verdict ladder, the recall guard, judging claims against the code — DO NOT APPLY to this task and must be set aside for it.\n\n" +
