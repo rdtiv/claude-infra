@@ -36,7 +36,10 @@ const IS_LEVEL = Object.prototype.hasOwnProperty.call(LEVEL_PARAMS, FIRST)
 const LEVEL = IS_LEVEL ? FIRST : "high"
 let TARGET = IS_LEVEL ? RAW.slice(FIRST.length).trim() : RAW
 const NO_EXEC = /(^|\s)no-exec(\s|$)/.test(TARGET)
-TARGET = TARGET.replace(/(^|\s)no-exec(\s|$)/, " ").trim()
+// Global, and looped: /g alone still misses adjacent tokens, because consuming
+// the trailing space of one match leaves the next without its leading boundary.
+while (/(^|\s)no-exec(\s|$)/.test(TARGET)) TARGET = TARGET.replace(/(^|\s)no-exec(\s|$)/g, " ")
+TARGET = TARGET.trim()
 const P = LEVEL_PARAMS[LEVEL]
 
 // ── Angles ────────────────────────────────────────────────────────────────────
@@ -290,43 +293,59 @@ function groupByLoc(cs) {
   return Object.values(by)
 }
 
+// Budget lives at module scope, not per call: screenAndVerify runs a second time
+// for the sweep, and a per-call budget silently doubled the sample.
+let controlRemaining = P.control
+
+// Screen is a BARRIER rather than a pipeline stage, deliberately. Choosing a
+// deterministic first-K control sample is cross-item context over the whole
+// screened set — the one condition that actually justifies a barrier. Selecting
+// it inside a pipeline stage meant the budget was consumed in agent-COMPLETION
+// order, so the same diff sampled different candidates run to run and the
+// measured false-kill rate was not reproducible. The lost pipelining is latency;
+// a measurement you cannot reproduce is worthless.
 async function screenAndVerify(candidates) {
-  const groups = groupByLoc(candidates)
   const doScreen = candidates.length >= SCREEN_MIN
   if (!doScreen) log("screen: skipped (" + candidates.length + " candidates, below threshold " + SCREEN_MIN + ")")
-  let controlBudget = P.control
-  const out = await pipeline(groups,
-    async g => {
-      if (!doScreen) return g.map(c => ({ ...c, screen: "UNSCREENED" }))
+
+  let screened
+  if (doScreen) {
+    const out = await parallel(groupByLoc(candidates).map(g => async () => {
       stats.screenAgents++
-      return await judgeGroup(g, SCREEN_CFG)
-    },
-    async g => {
-      // Control sample: send a bounded number of stage-A kills to the senior
-      // verifier ANYWAY. Disagreement is a measured stage-A false-kill rate.
-      // Math.random() throws in workflows, so the sample is first-K by order.
-      const killed = g.filter(c => c.screen === "REFUTED")
-      const controls = []
-      for (const c of killed) {
-        if (controlBudget <= 0) break
-        controlBudget--; stats.controlSample++
-        controls.push({ ...c, control: true })
-      }
-      const survivors = g.filter(c => c.screen !== "REFUTED").concat(controls)
-      stats.screenRefuted += killed.length
-      const passedThrough = g.filter(c => c.screen === "REFUTED" && !controls.some(k => k.order === c.order))
-      if (survivors.length === 0) return passedThrough
-      stats.verifierAgents++
-      const judged = await judgeGroup(survivors, VERIFY_CFG)
-      for (const c of judged) {
-        if (c.control && c.verdict !== "REFUTED") {
-          stats.controlDisagreements++
-          log("!! control: screen refuted " + loc(c) + " but the verifier did not — stage-A false kill")
-        }
-      }
-      return judged.concat(passedThrough)
-    })
-  return out.filter(Boolean).flat()
+      return judgeGroup(g, SCREEN_CFG)
+    }))
+    screened = out.filter(Boolean).flat()
+  } else {
+    screened = candidates.map(c => ({ ...c, screen: "UNSCREENED" }))
+  }
+  screened.sort((a, b) => a.order - b.order)
+
+  const killed = screened.filter(c => c.screen === "REFUTED")
+  stats.screenRefuted += killed.length
+  const controlOrders = new Set(killed.slice(0, controlRemaining).map(c => c.order))
+  controlRemaining -= controlOrders.size
+  stats.controlSample += controlOrders.size
+  for (const c of screened) if (controlOrders.has(c.order)) c.control = true
+
+  const toVerify = screened.filter(c => c.screen !== "REFUTED" || c.control)
+  const passedThrough = screened.filter(c => c.screen === "REFUTED" && !c.control)
+  if (toVerify.length === 0) return passedThrough
+
+  const vout = await parallel(groupByLoc(toVerify).map(g => async () => {
+    stats.verifierAgents++
+    return judgeGroup(g, VERIFY_CFG)
+  }))
+  const judged = vout.filter(Boolean).flat()
+  for (const c of judged) {
+    // `unverified` means the verifier never rendered a judgement — treating that
+    // as disagreement would blame the screen for a flaky verifier call and raise
+    // a spurious "recall is suspect" warning on an otherwise sound run.
+    if (c.control && !c.unverified && c.verdict !== "REFUTED") {
+      stats.controlDisagreements++
+      log("!! control: screen refuted " + loc(c) + " but the verifier did not — stage-A false kill")
+    }
+  }
+  return judged.concat(passedThrough)
 }
 
 phase("Screen")
@@ -431,6 +450,7 @@ if (surviving.length === 0) {
 
 // ── Synthesize ────────────────────────────────────────────────────────────────
 phase("Synthesize")
+stats.unverified = surviving.filter(c => c.unverified).length
 const ranked = surviving.slice().sort(byRank)
 const report = await safeAgent(
   "You are acting as a MERGE JUDGE, not as a verifier. These findings have already been verified — do not re-adjudicate them, and do not re-emit their text.\n\n" +

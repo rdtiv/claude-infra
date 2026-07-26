@@ -462,7 +462,7 @@ in your own worktree with explicit paths.
  * explicit approved `model:` and their effort still inherits the session. There is
  * no mechanism to pin effort on an agent whose definition we do not own.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -496,13 +496,19 @@ function readFrontmatter(path) {
   return out;
 }
 
-/** Agent definitions resolve project-first, then user scope. */
-function findAgentDefinition(type, cwd) {
+/** Agent definition roots, project-first then user scope. Shared so the deny
+ *  message can only ever describe the definitions this resolver would find. */
+function agentRoots(cwd) {
   const roots = [];
   const project = process.env.CLAUDE_PROJECT_DIR || cwd;
   if (project) roots.push(join(project, ".claude", "agents"));
   roots.push(join(homedir(), ".claude", "agents"));
-  for (const root of roots) {
+  return roots;
+}
+
+/** Agent definitions resolve project-first, then user scope. */
+function findAgentDefinition(type, cwd) {
+  for (const root of agentRoots(cwd)) {
     const path = join(root, `${type}.md`);
     const fm = readFrontmatter(path);
     if (fm) return { fm, path };
@@ -539,9 +545,39 @@ process.stdin.on("end", () => {
     process.exit(0);
   };
 
-  const HOUSE =
-    "House types pin both: implementor/finder/scout (sonnet, medium), " +
-    "architect (opus, xhigh), verifier/documentarian (opus, high).";
+  // Derived, never hand-written. A literal list here went stale the moment two
+  // agents were added — the same failure the PINNED_TYPES array caused, and the
+  // reason this guard validates definitions instead of enumerating names. Read
+  // from the same roots findAgentDefinition uses, so the message can only ever
+  // describe what is actually installed.
+  const HOUSE = (() => {
+    const seen = new Map();
+    for (const root of agentRoots(cwd)) {
+      let names;
+      try {
+        names = readdirSync(root);
+      } catch {
+        continue; // root absent — the other one may still exist
+      }
+      for (const f of names) {
+        if (!f.endsWith(".md")) continue;
+        const type = f.slice(0, -3);
+        if (seen.has(type)) continue; // project scope already won
+        const fm = readFrontmatter(join(root, f));
+        if (fm && fm.model && fm.effort) seen.set(type, `${fm.model}, ${fm.effort}`);
+      }
+    }
+    if (seen.size === 0) return "No house agent definitions were found to compare against.";
+    const byPin = new Map();
+    for (const [type, pin] of [...seen].sort()) {
+      byPin.set(pin, [...(byPin.get(pin) || []), type]);
+    }
+    return (
+      "House types pin both: " +
+      [...byPin].map(([pin, types]) => `${types.join("/")} (${pin})`).join(", ") +
+      "."
+    );
+  })();
 
   // A fork always runs on the parent's model — the Agent tool ignores `model`
   // for subagent_type "fork", so a `model:` on a fork looks compliant and isn't.

@@ -15,7 +15,8 @@ set -uo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 fail=0
 section() { printf '\n=== %s ===\n' "$1"; }
-ok()  { echo "  PASS  $1"; }
+passes=0
+ok()  { echo "  PASS  $1"; passes=$((passes + 1)); }
 bad() { echo "  FAIL  $1"; fail=$((fail + 1)); }
 
 SCRATCH="$(mktemp -d)"
@@ -726,8 +727,24 @@ fi
 
 # ---------------------------------------------------------------------------
 printf '\n'
+# ---------------------------------------------------------------------------
+# The README quotes a check count, and a hand-maintained number drifts the moment
+# anyone adds a check — it already shipped stale twice on the branch that added
+# this section. Assert it instead of trusting it. `+ 1` accounts for this check's
+# own PASS, which has not been emitted yet.
+section "README documents the real check count"
+doc_count=$(grep -oE '^[0-9]+ checks:' "$DIR/README.md" | head -1 | grep -oE '^[0-9]+' || true)
+expected=$((passes + 1))
+if [ -z "$doc_count" ]; then
+  bad "README has no '<N> checks:' line to compare against"
+elif [ "$doc_count" -eq "$expected" ]; then
+  ok "README says $doc_count checks, and $expected ran"
+else
+  bad "README says $doc_count checks but $expected ran — update the count in README.md"
+fi
+
 if [ "$fail" -eq 0 ]; then
-  echo "verify.sh: ALL CHECKS PASSED"
+  echo "verify.sh: ALL CHECKS PASSED ($passes checks)"
   exit 0
 else
   echo "verify.sh: $fail CHECK(S) FAILED"
