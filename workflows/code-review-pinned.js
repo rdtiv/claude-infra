@@ -528,7 +528,7 @@ for (const d of decisions) {
   let target = owner.get(d.index)
   if (!target) {
     if (findings.length >= P.maxFindings) continue
-    target = mk(ranked[d.index]); target._also = []
+    target = mk(ranked[d.index]); target._also = []; target._r = d.index
     findings.push(target); owner.set(d.index, target)
   }
   for (const i of (Array.isArray(d.merge) ? d.merge : [])) {
@@ -542,12 +542,18 @@ for (const d of decisions) {
 }
 for (let i = 0; i < ranked.length && findings.length < P.maxFindings; i++) {
   if (owner.has(i)) continue
-  const f = mk(ranked[i]); f._also = []
+  const f = mk(ranked[i]); f._also = []; f._r = i
   findings.push(f); owner.set(i, f); stats.backfilled++
 }
+// Enforce the ordering rather than asking for it. The synthesis prompt requests
+// most-severe-first and commands/review-pinned.md promises the operator exactly
+// that, but nothing made it true — the report came out in whatever order the
+// merge judge happened to emit decisions. `ranked` is already byRank-sorted, so
+// its index is the severity order we verified; sort on that.
+findings.sort((a, b) => a._r - b._r)
 for (const f of findings) {
   if (f._also.length > 0) f.summary += " [same root cause also at: " + f._also.join(", ") + "]"
-  delete f._also
+  delete f._also; delete f._r
 }
 stats.reported = findings.length
 

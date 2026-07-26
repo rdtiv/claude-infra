@@ -575,7 +575,13 @@ process.stdin.on("end", () => {
         const type = f.slice(0, -3);
         if (seen.has(type)) continue; // project scope already won
         const fm = readFrontmatter(join(root, f));
-        if (fm && fm.model && fm.effort) seen.set(type, `${fm.model}, ${fm.effort}`);
+        if (!fm) continue; // unreadable — a later root may still resolve it
+        // Claim the type at the FIRST root whose file exists, well-pinned or not.
+        // findAgentDefinition stops there too, so a later root's copy is never the
+        // definition that actually gets validated. Recording only well-pinned files
+        // let a home-scope definition describe a type that project scope resolves,
+        // so the deny message advertised a pin the guard had not checked.
+        seen.set(type, fm.model && fm.effort ? `${fm.model}, ${fm.effort}` : null);
       }
     }
     if (seen.size === 0) return "No house agent definitions were found to compare against.";
@@ -584,8 +590,10 @@ process.stdin.on("end", () => {
     // stringifies each pair and sorts the comma-joined result, which orders by an
     // accident of formatting rather than by type name.
     for (const [type, pin] of [...seen].sort((a, b) => a[0].localeCompare(b[0]))) {
+      if (!pin) continue; // claimed above, but its definition does not pin both axes
       byPin.set(pin, [...(byPin.get(pin) || []), type]);
     }
+    if (byPin.size === 0) return "No fully-pinned house agent definitions were found.";
     return (
       "House types pin both: " +
       [...byPin].map(([pin, types]) => `${types.join("/")} (${pin})`).join(", ") +

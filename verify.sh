@@ -326,7 +326,7 @@ catch(e){ console.error(e.message); process.exit(1) }
   for f in "$DIR"/workflows/*.js; do
     [ -f "$f" ] || continue
     n=$(basename "$f")
-    head -n 1 "$f" | grep -q "claude-infra-owned" \
+    head -n 1 "$f" | grep -q "^// claude-infra-owned" \
       && ok "$n carries the claude-infra-owned marker on line 1" \
       || bad "$n missing the claude-infra-owned marker on line 1 — sync/install would never update it"
   done
@@ -560,6 +560,16 @@ cmp -s "$SCRATCH/home5-seed.js" "$H5/.claude/workflows/code-review-pinned.js" \
 grep -q 'not claude-infra-owned' "$SCRATCH/i8.log" \
   && ok "install.sh warns about the unmarked collision" \
   || bad "install.sh overwrote or skipped silently — no collision warning"
+# The marker test is ANCHORED, not a substring search. A downstream first line that
+# merely mentions the marker — including one that explicitly disclaims it — must not
+# claim ownership, or the negation would authorise the overwrite it is warning about.
+printf '// forked from a claude-infra-owned base, do not sync\nmodule.exports=()=>{}\n' \
+  > "$H5/.claude/workflows/code-review-pinned.js"
+cp "$H5/.claude/workflows/code-review-pinned.js" "$SCRATCH/negation-seed.js"
+CLAUDE_INFRA_SKIP_VERIFY=1 HOME="$H5" bash "$DIR/install.sh" > "$SCRATCH/i10.log" 2>&1
+cmp -s "$SCRATCH/negation-seed.js" "$H5/.claude/workflows/code-review-pinned.js" \
+  && ok "a first line that merely mentions the marker does not claim ownership" \
+  || bad "substring match on the marker — a file disclaiming ownership was overwritten"
 # The other direction: a marked file must still be refreshed, or ours freezes.
 cp "$DIR/workflows/code-review-pinned.js" "$H5/.claude/workflows/code-review-pinned.js"
 printf '\n// stale tail\n' >> "$H5/.claude/workflows/code-review-pinned.js"
@@ -592,7 +602,7 @@ else
     && ok "install.sh did not retire an unmarked operator-owned workflow" \
     || bad "install.sh DELETED an unmarked operator-owned workflow named in the manifest"
   # and a marked one at the same path must still be retired
-  printf 'claude-infra-owned\nmodule.exports=()=>{}\n' > "$H6/.claude/workflows/code-review-pinned.js"
+  printf '// claude-infra-owned — installed by claude-infra\nmodule.exports=()=>{}\n' > "$H6/.claude/workflows/code-review-pinned.js"
   CLAUDE_INFRA_SKIP_VERIFY=1 HOME="$H6" bash "$RREPO/install.sh" > "$SCRATCH/ret2.log" 2>&1
   [ -f "$H6/.claude/workflows/code-review-pinned.js" ] \
     && bad "install.sh failed to retire a MARKED workflow listed in the manifest" \
@@ -697,7 +707,7 @@ if [ -f "$DIR/sync-repo.sh" ]; then
 
   # The other direction: a MARKED file (claude-infra-owned) must still be
   # updated. A guard that never writes is as broken as one that always writes.
-  printf 'claude-infra-owned — installed by claude-infra\nexports.meta = { name: "stale-marked-version" };\n' \
+  printf '// claude-infra-owned — installed by claude-infra\nexports.meta = { name: "stale-marked-version" };\n' \
     > "$DOWN/.claude/workflows/code-review-pinned.js"
   bash "$DIR/sync-repo.sh" "$DOWN" > "$SCRATCH/sync2.log" 2>&1
   cmp -s "$DIR/workflows/code-review-pinned.js" "$DOWN/.claude/workflows/code-review-pinned.js" \

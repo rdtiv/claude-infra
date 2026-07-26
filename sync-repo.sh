@@ -135,7 +135,7 @@ TARGET_SCRIPTS="$TARGET_CLAUDE/scripts"
 TARGET_WORKFLOWS="$TARGET_CLAUDE/workflows"
 
 # Marker claiming a workflow file as claude-infra-owned. See the workflows/ block.
-WF_MARKER="claude-infra-owned"
+WF_MARKER="^// claude-infra-owned"
 
 WRITTEN=()
 SKIPPED=()
@@ -174,7 +174,7 @@ retire_from() { # $1 = subdir ("hooks" | "commands" | "scripts" | "workflows")
       workflows/*)
         if ! head -n 1 "$dest" | grep -q "$WF_MARKER"; then
           echo "  $(basename "$rel"): listed for retirement but NOT claude-infra-owned — left untouched"
-          WARNINGS+=("$rel is listed in settings/retired.md but the downstream file lacks the '$WF_MARKER' marker; left untouched — delete it yourself if it is unwanted")
+          WARNINGS+=("$rel is listed in settings/retired.md but the downstream file lacks a claude-infra-owned marker comment on line 1; left untouched — delete it yourself if it is unwanted")
           continue
         fi
         ;;
@@ -284,7 +284,7 @@ if [ -d "$CI_DIR/workflows" ]; then
     fi
     if [ -f "$dest" ] && ! head -n 1 "$dest" | grep -q "$WF_MARKER"; then
       echo "  $name: exists downstream and is NOT claude-infra-owned — left untouched"
-      WARNINGS+=("workflows/$name exists downstream without the '$WF_MARKER' marker; left untouched — delete it to accept the claude-infra version")
+      WARNINGS+=("workflows/$name exists downstream without a claude-infra-owned marker comment on line 1; left untouched — delete it to accept the claude-infra version")
       continue
     fi
     [ -f "$dest" ] && echo "  $name: updated (was stale)" || echo "  $name: created"

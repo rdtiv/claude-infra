@@ -6,7 +6,7 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Marker claiming a workflow file as installer-owned. See the workflows/ block below.
-WF_MARKER="claude-infra-owned"
+WF_MARKER="^// claude-infra-owned"
 
 mkdir -p "$HOME/.claude/agents" "$HOME/.claude/hooks" "$HOME/.claude/commands" \
          "$HOME/.claude/rules" "$HOME/.claude/scripts" "$HOME/.claude/workflows"
