@@ -114,7 +114,13 @@ process.stdin.on("end", () => {
   // reason this guard validates definitions instead of enumerating names. Read
   // from the same roots findAgentDefinition uses, so the message can only ever
   // describe what is actually installed.
-  const HOUSE = (() => {
+  // Lazy + memoised: this walks both agent roots and parses frontmatter, and the
+  // overwhelming majority of hook invocations allow the spawn and never need the
+  // message at all. Paying two directory scans on every Agent call to build a
+  // string nobody reads is the wrong trade.
+  let houseCache = null;
+  const HOUSE = () => (houseCache ??= buildHouse());
+  const buildHouse = () => {
     const seen = new Map();
     for (const root of agentRoots(cwd)) {
       let names;
@@ -133,7 +139,10 @@ process.stdin.on("end", () => {
     }
     if (seen.size === 0) return "No house agent definitions were found to compare against.";
     const byPin = new Map();
-    for (const [type, pin] of [...seen].sort()) {
+    // Explicit comparator: sorting [type, pin] pairs with the default comparator
+    // stringifies each pair and sorts the comma-joined result, which orders by an
+    // accident of formatting rather than by type name.
+    for (const [type, pin] of [...seen].sort((a, b) => a[0].localeCompare(b[0]))) {
       byPin.set(pin, [...(byPin.get(pin) || []), type]);
     }
     return (
@@ -141,7 +150,7 @@ process.stdin.on("end", () => {
       [...byPin].map(([pin, types]) => `${types.join("/")} (${pin})`).join(", ") +
       "."
     );
-  })();
+  };
 
   // A fork always runs on the parent's model — the Agent tool ignores `model`
   // for subagent_type "fork", so a `model:` on a fork looks compliant and isn't.
@@ -152,7 +161,7 @@ process.stdin.on("end", () => {
         "ignores `model` for subagent_type: fork, so a fork on a Fable/Opus session is a " +
         "frontier-model subagent. Use a house type and pass the context the worker needs " +
         "in its prompt. " +
-        HOUSE,
+        HOUSE(),
     );
   }
 
@@ -163,11 +172,11 @@ process.stdin.on("end", () => {
       FRONTIER.test(model)
         ? `Delegation policy: never spawn a frontier subagent (model: ${model}) — that tier is ` +
             "the orchestrator's, and it costs 2-3x a worker tier for work a worker should do. " +
-            HOUSE
+            HOUSE()
         : `Delegation policy: model "${model}" is not an approved worker tier. Approved: ` +
             "sonnet | opus | haiku, or a version-pinned ID of one (e.g. claude-sonnet-5). " +
             "This guard fails closed — an unrecognized tier is denied rather than allowed. " +
-            HOUSE,
+            HOUSE(),
     );
   }
 
@@ -228,6 +237,6 @@ process.stdin.on("end", () => {
     `Delegation policy: this spawn (${type || "no subagent_type"}) would inherit the session ` +
       "model and effort. Either use a house agent type — which pins both in its definition — " +
       "or pass model: sonnet | opus | haiku explicitly on the Agent call. " +
-      HOUSE,
+      HOUSE(),
   );
 });

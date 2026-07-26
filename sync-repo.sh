@@ -166,6 +166,19 @@ retire_from() { # $1 = subdir ("hooks" | "commands" | "scripts" | "workflows")
     [ -n "$rel" ] || continue
     dest="$TARGET_CLAUDE/$rel"
     [ -f "$dest" ] || continue          # -f, not -e: never try to rm a directory
+    # Ownership governs DELETION as well as writing. The workflows/ copy loop
+    # refuses to overwrite an unmarked file because that directory is shared
+    # ground; retirement deletes by path, so without this check the very file the
+    # copy loop protects gets removed the moment a workflows/ entry is listed.
+    case "$rel" in
+      workflows/*)
+        if ! head -n 1 "$dest" | grep -q "$WF_MARKER"; then
+          echo "  $(basename "$rel"): listed for retirement but NOT claude-infra-owned — left untouched"
+          WARNINGS+=("$rel is listed in settings/retired.md but the downstream file lacks the '$WF_MARKER' marker; left untouched — delete it yourself if it is unwanted")
+          continue
+        fi
+        ;;
+    esac
     echo "  $(basename "$rel"): retired (listed in settings/retired.md)"
     RETIRED+=("$rel")
     [ "$DRY_RUN" -eq 0 ] && rm -f "$dest"

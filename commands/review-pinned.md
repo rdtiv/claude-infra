@@ -53,4 +53,11 @@ fixes on the same branch.
 alone. Use it when you want a second, differently-built opinion — not as a
 substitute for this one.
 
+**One thing only this command can do.** The built-in `/code-review` is registered
+`disableModelInvocation: true`, so it is user-invocable *only* — an agent that
+tries to call it gets `Skill code-review cannot be used with Skill tool due to
+disable-model-invocation`. This command carries no such flag, which is what makes
+the "local gate before the remote gate" rule executable by an unattended mission
+rather than something a human has to remember to type.
+
 Review: $ARGUMENTS

@@ -373,9 +373,12 @@ else
   gone=$(git -C "$DIR" diff --name-only --diff-filter=D origin/main...HEAD 2>/dev/null \
          | grep -E '^(hooks|commands|scripts|workflows)/' || true)
   miss=0
-  for p in $gone; do
+  # read, not `for p in $gone` — an unquoted expansion word-splits and glob-expands
+  # any deleted path containing a space or a metacharacter.
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
     grep -qxF "$p" "$mf" || { bad "$p deleted but absent from settings/retired.md"; miss=1; }
-  done
+  done <<< "$gone"
   [ "$miss" -eq 0 ] && ok "every deleted hook/command is listed in the manifest"
   # A stale entry is the other direction: still listed, but back in the repo.
   stale=0
@@ -566,6 +569,45 @@ cmp -s "$DIR/workflows/code-review-pinned.js" "$H5/.claude/workflows/code-review
   || bad "install.sh left a marked (claude-infra-owned) workflow stale"
 
 # ---------------------------------------------------------------------------
+# Ownership must govern DELETION, not only writing. This was a real data-loss bug:
+# the copy loop refused to overwrite an unmarked workflow, while the retirement
+# loop three lines away deleted the same file by path with no marker check. It is
+# reachable as soon as a workflows/ entry lands in the manifest, which the
+# manifest's own header invites. Both scopes get the same test.
+section "retirement respects workflow ownership (scratch HOME + downstream)"
+RREPO="$SCRATCH/retrepo"
+cp -R "$DIR" "$RREPO" 2>/dev/null || true
+rm -rf "$RREPO/.git"
+if [ ! -f "$RREPO/install.sh" ]; then
+  bad "could not stage a scratch copy of the repo for the retirement test"
+else
+  rm -f "$RREPO/workflows/code-review-pinned.js"     # as if removed upstream
+  printf 'workflows/code-review-pinned.js\n' >> "$RREPO/settings/retired.md"
+  # user scope
+  H6="$SCRATCH/home6"; mkdir -p "$H6/.claude/workflows"
+  printf '// operator-owned, no marker\nmodule.exports=()=>{}\n' > "$H6/.claude/workflows/code-review-pinned.js"
+  cp "$H6/.claude/workflows/code-review-pinned.js" "$SCRATCH/ret-seed.js"
+  CLAUDE_INFRA_SKIP_VERIFY=1 HOME="$H6" bash "$RREPO/install.sh" > "$SCRATCH/ret1.log" 2>&1
+  cmp -s "$SCRATCH/ret-seed.js" "$H6/.claude/workflows/code-review-pinned.js" \
+    && ok "install.sh did not retire an unmarked operator-owned workflow" \
+    || bad "install.sh DELETED an unmarked operator-owned workflow named in the manifest"
+  # and a marked one at the same path must still be retired
+  printf 'claude-infra-owned\nmodule.exports=()=>{}\n' > "$H6/.claude/workflows/code-review-pinned.js"
+  CLAUDE_INFRA_SKIP_VERIFY=1 HOME="$H6" bash "$RREPO/install.sh" > "$SCRATCH/ret2.log" 2>&1
+  [ -f "$H6/.claude/workflows/code-review-pinned.js" ] \
+    && bad "install.sh failed to retire a MARKED workflow listed in the manifest" \
+    || ok "install.sh retired a marked workflow listed in the manifest"
+  # repo scope
+  RDOWN="$SCRATCH/retdown"; mkdir -p "$RDOWN/.claude/workflows"
+  git -C "$RDOWN" init -q 2>/dev/null || true
+  printf '// operator-owned, no marker\nmodule.exports=()=>{}\n' > "$RDOWN/.claude/workflows/code-review-pinned.js"
+  bash "$RREPO/sync-repo.sh" "$RDOWN" > "$SCRATCH/ret3.log" 2>&1 || true
+  cmp -s "$SCRATCH/ret-seed.js" "$RDOWN/.claude/workflows/code-review-pinned.js" \
+    && ok "sync-repo did not retire an unmarked repo-owned workflow" \
+    || bad "sync-repo DELETED an unmarked repo-owned workflow named in the manifest"
+fi
+
+# ---------------------------------------------------------------------------
 section "sync-repo (scratch downstream copy)"
 if [ -f "$DIR/sync-repo.sh" ]; then
   DOWN="$SCRATCH/downstream"
@@ -734,7 +776,10 @@ printf '\n'
 # own PASS, which has not been emitted yet.
 section "README documents the real check count"
 doc_count=$(grep -oE '^[0-9]+ checks:' "$DIR/README.md" | head -1 | grep -oE '^[0-9]+' || true)
-expected=$((passes + 1))
+# Count FAILures too. Comparing against passes alone reported a spurious count
+# mismatch whenever an earlier check failed — a second, misleading failure
+# stacked on top of the real one.
+expected=$((passes + fail + 1))
 if [ -z "$doc_count" ]; then
   bad "README has no '<N> checks:' line to compare against"
 elif [ "$doc_count" -eq "$expected" ]; then

@@ -17,7 +17,12 @@ Rules:
 
 - **Containment.** First action is `WORK=$(mktemp -d)`. Everything you
   create lives under `$WORK`. Never Write to a path inside the repo. Never
-  modify, stage, stash, or check out anything in the repo.
+  modify, stage, stash, or check out anything in the repo. **Last action, on
+  every path out — success, failure, or timebox — is `rm -rf "$WORK"`.** Copy
+  anything you need to report into your answer first; a scratch directory left
+  behind is one more thing accumulating on the operator's machine every time a
+  review runs. `$WORK` is a `mktemp -d` path, so removing it is in scope for
+  you and only for you.
 
 - **Method ladder, cheapest first.**
   1. An existing test already covering the cited line — run the NARROWEST

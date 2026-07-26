@@ -47,10 +47,26 @@ echo "agents, hooks, commands, scripts, workflows copied to ~/.claude"
 #
 # Driven by the manifest rather than "delete anything not in the repo" — the latter
 # would remove the operator's own agents, hooks, and commands from ~/.claude.
+#
+# Ownership applies to DELETION too, not just to writing. The copy loop above
+# refuses to overwrite an unmarked workflow because ~/.claude/workflows/ is shared
+# ground — but retirement deletes by path, so without this the same unmarked file
+# the copy loop protects would be removed outright the moment a workflows/ entry
+# lands in the manifest. Retiring our own file must never take an operator's file
+# that merely shares its name.
 while IFS= read -r rel; do
   case "$rel" in ""|"<!--"*|*"-->"|" "*) continue ;; esac
   target="$HOME/.claude/$rel"
   if [ -f "$target" ]; then
+    case "$rel" in
+      workflows/*)
+        if ! head -n 1 "$target" | grep -q "$WF_MARKER"; then
+          echo "  ! .claude/$rel is listed for retirement but is not claude-infra-owned"
+          echo "    — left untouched. Delete it yourself if you no longer want it."
+          continue
+        fi
+        ;;
+    esac
     rm -f "$target"
     echo "retired: .claude/$rel"
   fi

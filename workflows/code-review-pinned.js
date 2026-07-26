@@ -22,7 +22,10 @@ export const meta = {
 const LEVEL_PARAMS = {
   low:    { angles: 1, cleanup: false, perAngle: 4,  maxFindings: 3,  sweep: false, repro: 0, control: 0 },
   medium: { angles: 2, cleanup: true,  perAngle: 5,  maxFindings: 5,  sweep: false, repro: 0, control: 0 },
-  high:   { angles: 3, cleanup: true,  perAngle: 6,  maxFindings: 10, sweep: false, repro: 2, control: 0 },
+  // control > 0 from `high` up: high is the DEFAULT level, and it runs the screen
+  // at full strength. Auditing false kills only at xhigh/max meant the level you
+  // actually use was the one level where a wrongly-refuted finding went undetected.
+  high:   { angles: 3, cleanup: true,  perAngle: 6,  maxFindings: 10, sweep: false, repro: 2, control: 2 },
   xhigh:  { angles: 5, cleanup: true,  perAngle: 8,  maxFindings: 15, sweep: true,  repro: 3, control: 2 },
   max:    { angles: 5, cleanup: true,  perAngle: 10, maxFindings: 20, sweep: true,  repro: 5, control: 3 },
 }
@@ -83,11 +86,14 @@ const SCREEN_SCHEMA = {
   type: "object", required: ["verdicts"],
   properties: {
     verdicts: { type: "array", items: {
-      type: "object", required: ["index", "verdict"],
+      // evidence is required unconditionally: the prompt says a REFUTED verdict
+      // needs a quoted construction, and leaving the field optional let the model
+      // satisfy the schema while skipping the one thing that makes a kill legitimate.
+      type: "object", required: ["index", "verdict", "evidence"],
       properties: {
         index: { type: "number", description: "the [i] label of the claim this verdict is for" },
         verdict: { enum: ["SURVIVES", "REFUTED"] },
-        evidence: { type: "string", description: "required when REFUTED: the quoted line that kills it" },
+        evidence: { type: "string", description: "when REFUTED, the quoted line from the code that kills the claim; when SURVIVES, one short sentence on what you checked" },
       },
     }},
   },
@@ -111,7 +117,7 @@ const REPRO_SCHEMA = {
   type: "object", required: ["outcome", "detail"],
   properties: {
     outcome: { enum: ["REPRODUCED", "CONTRADICTED", "INCONCLUSIVE"] },
-    detail: { type: "string" },
+    detail: { type: "string", description: "what you did and what it showed — for CONTRADICTED, state how you know the harness would have caught the behaviour had it occurred" },
     command: { type: "string" },
     observed: { type: "string" },
     gitStatusBefore: { type: "string" },
@@ -199,18 +205,25 @@ function canonFile(raw) {
     if ((p === sf || p.endsWith("/" + sf)) && sf.length > best.length) best = sf
   }
   if (best) return { file: best, offScope: false }
-  const uniq = byBase[p.split("/").pop()]
+  // A raw path ending in "/" yields an empty basename, which must never be used
+  // as a lookup key — it would match whatever happened to land at byBase[""].
+  const bn = p.split("/").filter(Boolean).pop()
+  const uniq = bn ? byBase[bn] : null
   if (uniq) return { file: uniq, offScope: false }
   return { file: p, offScope: true }
 }
-let ORDER = 0
-function ingest(raw, cap, kind, label, trustKind) {
+// `order` must be a property of the DIFF, not of the run. Minting it from a shared
+// counter incremented inside each finder's async callback made it depend on which
+// agent's network call resolved first — so control-sample selection and tie-break
+// ranking, both keyed on order, moved with network jitter. Every caller passes a
+// base derived from its own fixed index instead.
+function ingest(raw, cap, kind, label, trustKind, base) {
   const all = Array.isArray(raw) ? raw : []
-  const kept = all.slice(0, cap).map(c => {
+  const kept = all.slice(0, cap).map((c, idx) => {
     const { file, offScope } = canonFile(c.file)
     if (offScope) stats.offScope++
     const k = trustKind && (c.kind === "correctness" || c.kind === "cleanup") ? c.kind : kind
-    return { ...c, file, offScope, kind: k, order: ORDER++ }
+    return { ...c, file, offScope, kind: k, order: base + idx }
   })
   const over = all.length - kept.length
   if (over > 0) stats.overCap += over
@@ -233,11 +246,13 @@ const finderPrompt = f =>
   SCOPE_BLOCK + "\n## Your angle: " + f.label + "\n\n" + f.text + "\n\n" +
   "Hunt this angle and nothing else. Report every candidate you find — do NOT filter by confidence, a separate verifier judges. Cite file and line for each. Cap: " + f.cap + ". Read-only: never modify, stage or check out anything.\n\nStructured output only."
 
-const found = await parallel(FINDERS.map(f => () =>
+const ORDER_STRIDE = 1000
+const found = await parallel(FINDERS.map((f, fi) => () =>
   safeAgent(finderPrompt(f), { label: "find:" + f.label, phase: "Find", schema: CANDIDATES_SCHEMA, agentType: "finder" })
     .then(r => {
       if (!r) { stats.agentFailures++; log("find:" + f.label + ": agent returned nothing"); return [] }
-      return ingest(r.candidates, f.cap, f.kind, "find:" + f.label, false)
+      // Base from the finder's fixed index, so order is stable across runs.
+      return ingest(r.candidates, f.cap, f.kind, "find:" + f.label, false, fi * ORDER_STRIDE)
     })
 ))
 let pool = found.filter(Boolean).flat().sort((a, b) => a.order - b.order)
@@ -270,9 +285,9 @@ const SCREEN_CFG = {
   agentType: "refuter", phase: "Screen", schema: SCREEN_SCHEMA,
   // The claim ONLY. failure_scenario is deliberately withheld until the senior
   // stage so the screen cannot inherit the finder's confidence.
-  prompt: g => SCOPE_BLOCK + "\n## Claims at " + loc(g[0]) + "\n\n" +
+  prompt: g => SCOPE_BLOCK + "\n## Claim at " + loc(g[0]) + "\n\n" +
     g.map((c, i) => "[" + i + "] " + c.summary).join("\n") +
-    "\n\nJudge each claim independently against the actual code. The number of claims here says nothing about their merit — they came from finders hunting different angles, not from anyone agreeing.\n\nStructured output only.",
+    "\n\nJudge this claim against the actual code. You are seeing it alone and on purpose: you are not told who raised it, why, or what else was said about this line. Return REFUTED only with a quoted construction from the code; otherwise SURVIVES.\n\nStructured output only.",
   apply: (c, v) => v && v.verdict === "REFUTED"
     ? { ...c, screen: "REFUTED", screenEvidence: v.evidence || "" }
     : { ...c, screen: "SURVIVES" },
@@ -310,9 +325,15 @@ async function screenAndVerify(candidates) {
 
   let screened
   if (doScreen) {
-    const out = await parallel(groupByLoc(candidates).map(g => async () => {
+    // ONE refuter per claim, deliberately not per location. Batching a location's
+    // claims into a single prompt hands the refuter exactly the pile-up that
+    // agents/refuter.md tells it to ignore ("several claims at one location is
+    // not corroboration") — the workflow was contradicting the agent definition,
+    // and a screen that saw N claims at once refuted 0 of 23 on its first real
+    // diff. The verifier still batches by location; only the screen is per-claim.
+    const out = await parallel(candidates.map(c => async () => {
       stats.screenAgents++
-      return judgeGroup(g, SCREEN_CFG)
+      return judgeGroup([c], SCREEN_CFG)
     }))
     screened = out.filter(Boolean).flat()
   } else {
@@ -365,7 +386,8 @@ if (P.sweep) {
   else {
     // Only the sweep self-tags kind — its remit genuinely spans both flavours.
     // Angle finders get kind forced, since the assignment defines the lens.
-    const fresh = ingest(sweep.candidates, SWEEP_MAX, "correctness", "sweep", true)
+    // Sweep sorts after every finder: a fixed base above their highest.
+    const fresh = ingest(sweep.candidates, SWEEP_MAX, "correctness", "sweep", true, (FINDERS.length + 1) * ORDER_STRIDE)
     if (fresh.length > 0) judged = judged.concat(await screenAndVerify(fresh))
   }
 }
@@ -453,7 +475,8 @@ phase("Synthesize")
 stats.unverified = surviving.filter(c => c.unverified).length
 const ranked = surviving.slice().sort(byRank)
 const report = await safeAgent(
-  "You are acting as a MERGE JUDGE, not as a verifier. These findings have already been verified — do not re-adjudicate them, and do not re-emit their text.\n\n" +
+  "You are acting as a MERGE JUDGE. Your standing instructions as a verifier — the verdict ladder, the recall guard, judging claims against the code — DO NOT APPLY to this task and must be set aside for it.\n\n" +
+  "These findings have already been verified by other agents. You are not re-adjudicating them: you cannot change a verdict (the output schema carries no verdict field), and dropping one you personally doubt does not remove it from the report, it only sends it through the backfill path unmerged. Your only job is to decide which findings describe the SAME ROOT CAUSE, and in what order they should be read.\n\n" +
   ranked.length + " findings survived verification of a " + LEVEL + "-effort review, numbered [0]-[" + (ranked.length - 1) + "]:\n\n" +
   ranked.map((c, i) =>
     "### [" + i + "] " + loc(c) + " (" + c.verdict + (c.kind === "cleanup" ? ", cleanup" : "") + (c.empirical ? ", " + c.empirical : "") + ")\n" +
