@@ -536,6 +536,35 @@ grep -q 'session-protocol' "$H4/.claude/settings.json" && bad "settings.json sti
   || ok "install.sh stripped session-protocol from settings.json"
 
 # ---------------------------------------------------------------------------
+# install.sh has its OWN copy of the workflows ownership guard, on the user-scope
+# path. The sync-repo section below covers the repo-scope half; without this, a
+# regression in one path would hide behind the other passing.
+section "install.sh does not clobber an operator's own workflow (scratch HOME)"
+H5="$SCRATCH/home5"; mkdir -p "$H5"
+CLAUDE_INFRA_SKIP_VERIFY=1 HOME="$H5" bash "$DIR/install.sh" > "$SCRATCH/i7.log" 2>&1
+[ -f "$H5/.claude/workflows/code-review-pinned.js" ] \
+  && ok "install.sh delivered workflows/code-review-pinned.js to ~/.claude" \
+  || bad "install.sh did not deliver the workflow to ~/.claude"
+# An operator's hand-written file at the same path carries no marker.
+printf '// hand-written by the operator, not ours\nexports.meta={name:"mine"}\n' \
+  > "$H5/.claude/workflows/code-review-pinned.js"
+cp "$H5/.claude/workflows/code-review-pinned.js" "$SCRATCH/home5-seed.js"
+CLAUDE_INFRA_SKIP_VERIFY=1 HOME="$H5" bash "$DIR/install.sh" > "$SCRATCH/i8.log" 2>&1
+cmp -s "$SCRATCH/home5-seed.js" "$H5/.claude/workflows/code-review-pinned.js" \
+  && ok "install.sh left an unmarked same-named workflow untouched" \
+  || bad "install.sh overwrote an operator-owned workflow merely because the name collided"
+grep -q 'not claude-infra-owned' "$SCRATCH/i8.log" \
+  && ok "install.sh warns about the unmarked collision" \
+  || bad "install.sh overwrote or skipped silently — no collision warning"
+# The other direction: a marked file must still be refreshed, or ours freezes.
+cp "$DIR/workflows/code-review-pinned.js" "$H5/.claude/workflows/code-review-pinned.js"
+printf '\n// stale tail\n' >> "$H5/.claude/workflows/code-review-pinned.js"
+CLAUDE_INFRA_SKIP_VERIFY=1 HOME="$H5" bash "$DIR/install.sh" > "$SCRATCH/i9.log" 2>&1
+cmp -s "$DIR/workflows/code-review-pinned.js" "$H5/.claude/workflows/code-review-pinned.js" \
+  && ok "install.sh refreshed a stale marked workflow" \
+  || bad "install.sh left a marked (claude-infra-owned) workflow stale"
+
+# ---------------------------------------------------------------------------
 section "sync-repo (scratch downstream copy)"
 if [ -f "$DIR/sync-repo.sh" ]; then
   DOWN="$SCRATCH/downstream"
