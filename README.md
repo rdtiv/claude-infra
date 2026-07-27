@@ -5,7 +5,8 @@ effective, and safe to run unattended** — by pinning which model each kind of 
 uses, and enforcing it in a hook rather than hoping a prompt is followed.
 
 Install it once per machine. It adds a set of named agent roles, two guardrails, and
-one command that runs a piece of work end to end.
+two commands — one that runs a piece of work end to end, one that reviews a diff on
+that same pinned fleet.
 
 ---
 
@@ -112,8 +113,10 @@ follows it.
 axes, or that names an unapproved model. The other refuses working-tree-destroying git
 outside a worktree or scratch path.
 
-**One command.** `/mission` provisions a worktree, runs the work through recon → spec
-→ implement → review → PR, and decommissions cleanly.
+**Two commands.** `/mission` provisions a worktree, runs the work through recon → spec
+→ implement → review → PR, and decommissions cleanly. `/review-pinned` runs that review
+step on its own, over any diff you point it at — scope, hunt, verify, and optionally
+reproduce, every stage on a pinned role.
 
 ---
 
@@ -218,13 +221,40 @@ Re-running the installer is always safe; it's idempotent.
 
 **2. Start the work** with `/mission <issue# | pr# | description>`.
 
-That's the whole interface. `/mission` provisions a worktree from the default branch,
-opens a task list, runs recon → specs → implementation → adversarial review → your
-repo's PR gate, and keeps commits out of your main checkout. `/mission end`
-decommissions: verifies nothing is unmerged, removes every worktree it created, and
-reconciles loose ends onto the kickoff issue.
+`/mission` provisions a worktree from the default branch, opens a task list, runs recon
+→ specs → implementation → adversarial review → your repo's PR gate, and keeps commits
+out of your main checkout. `/mission end` decommissions: verifies nothing is unmerged,
+removes every worktree it created, and reconciles loose ends onto the kickoff issue.
 
-Small conversational work needs none of this — plain prompting is fine.
+**3. Review locally before the remote gate** with `/review-pinned <level> [target]`.
+
+A mission already runs this as its review step. The command exists so you can also aim
+it at a diff on its own — a PR number, a branch, a ref range, a path, or a free-form
+narrowing like `only src/auth`, all passed through verbatim as scope guidance:
+
+```text
+/review-pinned high            # current branch's diff, default level
+/review-pinned max 42          # deepest pass, scoped to PR 42
+/review-pinned high no-exec    # skip the reproduction gate
+```
+
+Level is `low` | `medium` | `high` | `xhigh` | `max`, defaulting to `high`, and it
+degrades by **breadth, not rigor**: the verifier tier and the verdict ladder are the
+same at every level, so a `low` finding means what a `max` finding means — only the
+number of hunting angles, the report cap, and the optional stages change. `high` and up
+add a reproduction gate that tries to make a confirmed finding *actually happen* in a
+sandbox; that gate is the `reproducer` role's entire reason to exist, and `no-exec` is
+what turns it off. `xhigh` and `max` add a sweep that hunts only for what the earlier
+passes missed.
+
+Run it to clean **before** inviting a remote or CI reviewer, never alongside one: two
+reviewers working the same diff land duplicate and conflicting fixes on one branch, and
+you end up rebasing your own work onto a reviewer's equivalent commit. The built-in
+`/code-review` reaches the vendor's own reviewer and is deliberately left in place — use
+it for a second, differently-built opinion, not as a substitute for this one.
+
+Two commands and a tier is the whole interface. Small conversational work needs none of
+it — plain prompting is fine.
 
 There's no separate "build contract" to invoke. `/mission` carries it, and emits
 delegation guidance matched to the tier you chose: Opus is told to cap delegation,
