@@ -5,8 +5,11 @@
 > no-git fallback — paste it into a Claude Code session on the target machine
 > and say *"execute this"*. Everything needed is inline. Safe to re-run;
 > every step is idempotent. Note: the repo also carries
-> `commands/mission.md` (worktree lifecycle) — if installing from this file,
-> copy that from the repo when you can.
+> `commands/mission.md` (worktree lifecycle), `commands/review-pinned.md` and
+> `workflows/code-review-pinned.js` (the local review gate) — if installing
+> from this file, copy those from the repo when you can. Without them the
+> `refuter` and `reproducer` agents below install correctly but nothing
+> invokes them: they exist only to serve that workflow.
 
 **What it installs:** a two-tier delegation policy. The main session
 (Fable or Opus, chosen at session start via `/model`) designs, specs, and

@@ -142,6 +142,14 @@ SKIPPED=()
 WARNINGS=()
 RETIRED=()
 
+# Temp files are reaped by a trap, not by an rm on the next line. Under
+# `set -euo pipefail` any failure between mktemp and that rm — a downstream
+# settings.json that does not parse, say — aborts the script and leaks the file.
+# A trap fires on the abort too.
+SYNC_TMP=()
+cleanup_tmp() { [ "${#SYNC_TMP[@]}" -gt 0 ] && rm -f "${SYNC_TMP[@]}" || true; }
+trap cleanup_tmp EXIT
+
 # Retirement is driven by settings/retired.md — an explicit list of paths this repo
 # used to install and no longer does.
 #
@@ -304,7 +312,7 @@ echo
 # 2. Agents — narrow frontmatter patch. model:/effort: only; body untouched.
 # ---------------------------------------------------------------------------
 echo "--- agents ---"
-AGENT_LOG="$(mktemp)"
+AGENT_LOG="$(mktemp)"; SYNC_TMP+=("$AGENT_LOG")
 CI_DIR="$CI_DIR" REPO="$REPO" DRY_RUN="$DRY_RUN" node --input-type=commonjs <<'NODE_AGENTS_EOF' | tee "$AGENT_LOG"
 const { readFileSync, writeFileSync, existsSync, readdirSync } = require("node:fs");
 const { join } = require("node:path");
@@ -471,7 +479,7 @@ rm -f "$AGENT_LOG"
 echo "--- settings.json ---"
 PREFIX='${CLAUDE_PROJECT_DIR:-$PWD}'
 if [ "$DRY_RUN" -eq 1 ]; then
-  TMP_SETTINGS="$(mktemp)"
+  TMP_SETTINGS="$(mktemp)"; SYNC_TMP+=("$TMP_SETTINGS")
   if [ -f "$TARGET_CLAUDE/settings.json" ]; then
     cp "$TARGET_CLAUDE/settings.json" "$TMP_SETTINGS"
   else

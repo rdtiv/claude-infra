@@ -5,8 +5,11 @@
 > no-git fallback — paste it into a Claude Code session on the target machine
 > and say *"execute this"*. Everything needed is inline. Safe to re-run;
 > every step is idempotent. Note: the repo also carries
-> `commands/mission.md` (worktree lifecycle) — if installing from this file,
-> copy that from the repo when you can.
+> `commands/mission.md` (worktree lifecycle), `commands/review-pinned.md` and
+> `workflows/code-review-pinned.js` (the local review gate) — if installing
+> from this file, copy those from the repo when you can. Without them the
+> `refuter` and `reproducer` agents below install correctly but nothing
+> invokes them: they exist only to serve that workflow.
 
 **What it installs:** a two-tier delegation policy. The main session
 (Fable or Opus, chosen at session start via `/model`) designs, specs, and
@@ -581,7 +584,7 @@ process.stdin.on("end", () => {
         // definition that actually gets validated. Recording only well-pinned files
         // let a home-scope definition describe a type that project scope resolves,
         // so the deny message advertised a pin the guard had not checked.
-        seen.set(type, fm.model && fm.effort ? `${fm.model}, ${fm.effort}` : null);
+        seen.set(type, fm.model && fm.effort ? `${fm.model.toLowerCase()}, ${fm.effort.toLowerCase()}` : null);
       }
     }
     if (seen.size === 0) return "No house agent definitions were found to compare against.";

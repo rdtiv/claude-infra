@@ -140,7 +140,7 @@ process.stdin.on("end", () => {
         // definition that actually gets validated. Recording only well-pinned files
         // let a home-scope definition describe a type that project scope resolves,
         // so the deny message advertised a pin the guard had not checked.
-        seen.set(type, fm.model && fm.effort ? `${fm.model}, ${fm.effort}` : null);
+        seen.set(type, fm.model && fm.effort ? `${fm.model.toLowerCase()}, ${fm.effort.toLowerCase()}` : null);
       }
     }
     if (seen.size === 0) return "No house agent definitions were found to compare against.";
