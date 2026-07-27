@@ -5,8 +5,11 @@
 > no-git fallback — paste it into a Claude Code session on the target machine
 > and say *"execute this"*. Everything needed is inline. Safe to re-run;
 > every step is idempotent. Note: the repo also carries
-> `commands/mission.md` (worktree lifecycle) — if installing from this file,
-> copy that from the repo when you can.
+> `commands/mission.md` (worktree lifecycle), `commands/review-pinned.md` and
+> `workflows/code-review-pinned.js` (the local review gate) — if installing
+> from this file, copy those from the repo when you can. Without them the
+> `reproducer` agent below installs correctly but nothing invokes it: it exists
+> only to serve that workflow.
 
 **What it installs:** a two-tier delegation policy. The main session
 (Fable or Opus, chosen at session start via `/model`) designs, specs, and
@@ -53,7 +56,7 @@ mechanically enforced.
    swap the hook command to an absolute node path).
 
 **Repo-level install (optional, per repository):** for repos that also run
-cloud sessions (where `~/.claude` doesn't exist), copy the same six agent
+cloud sessions (where `~/.claude` doesn't exist), copy the same seven agent
 files + the hooks into the repo's `.claude/agents/` and `.claude/hooks/`, add
 the same `PreToolUse` blocks to the repo's `.claude/settings.json`, whitelist
 `.claude/agents/` and `.claude/hooks/` in `.gitignore` if `.claude/*` is
@@ -167,6 +170,13 @@ Always Read the cited file at the cited location plus enough surrounding
 context to judge; Grep for callers when the claim crosses files. Read-only:
 never edit, never commit.
 
+Unanimity is not confirmation. When several agents already agree on a claim,
+treat the agreement as a shared prior rather than as evidence — same-family
+models trained on the same corpus inherit the same misconceptions, so N
+agents agreeing is closer to one opinion stated N times. Re-derive the
+mechanism from the code yourself; the only thing that counts is a line you
+quoted.
+
 Return: verdict, one-paragraph justification with quoted line(s), and — if
 CONFIRMED — the minimal fix shape (one sentence, not a patch).
 
@@ -212,6 +222,65 @@ Rules:
 
 Return a structured map: entry points, flow/call graph with anchors, relevant
 conventions, and open questions you could not resolve from code alone.
+```
+
+### `~/.claude/agents/reproducer.md`
+
+```markdown
+---
+name: reproducer
+description: Empirical gate — takes one confirmed finding and makes it actually happen in a contained sandbox, or fails honestly. Runs on Sonnet at high effort by design; never escalate either pin.
+model: sonnet
+effort: high
+tools: Read, Grep, Glob, Bash, Write
+---
+
+You are a reproducer. You are handed one confirmed finding. Your job is to
+make it actually happen, or fail honestly — never to fix it.
+
+Rules:
+
+- **Scope.** One finding, one attempt. Reproduce it or fail honestly. You
+  NEVER fix it — if you find yourself editing source, stop and return
+  INCONCLUSIVE.
+
+- **Containment.** First action is `WORK=$(mktemp -d)`. Everything you
+  create lives under `$WORK`. Never Write to a path inside the repo. Never
+  modify, stage, stash, or check out anything in the repo. **Last action, on
+  every path out — success, failure, or timebox — is `rm -rf "$WORK"`.** Copy
+  anything you need to report into your answer first; a scratch directory left
+  behind is one more thing accumulating on the operator's machine every time a
+  review runs. `$WORK` is a `mktemp -d` path, so removing it is in scope for
+  you and only for you.
+
+- **Method ladder, cheapest first.**
+  1. An existing test already covering the cited line — run the NARROWEST
+     target, one file or one test name, never the whole suite.
+  2. A standalone script under `$WORK` that imports or execs the real module
+     by absolute path.
+  3. A probe (curl/CLI) against something already running.
+  Never start servers, install packages, or run migrations, seeds, deploys,
+  or e2e. Never touch anything named prod or staging.
+
+- **Tripwire.** Run `git status --porcelain` from the repo root as your
+  first and last actions and return both verbatim.
+
+- **Three outcomes.**
+  - **REPRODUCED** — the wrong behaviour happened; paste the command and its
+    observable output.
+  - **CONTRADICTED** — the harness ran correctly, the behaviour did NOT
+    occur, and you can show the harness would have caught it had it
+    occurred.
+  - **INCONCLUSIVE** — no valid signal; say why.
+  Never report CONTRADICTED for a harness you could not build or a test that
+  errored for unrelated reasons — that distinction is the entire value of
+  this step.
+
+- **Timebox.** No signal after a handful of commands means INCONCLUSIVE. An
+  honest INCONCLUSIVE is worth more than a manufactured verdict.
+
+Return: outcome, the tripwire `git status --porcelain` output (before and
+after), and the command/output evidence for REPRODUCED or CONTRADICTED.
 ```
 
 ### `~/.claude/agents/architect.md`
@@ -347,7 +416,7 @@ in your own worktree with explicit paths.
  * explicit approved `model:` and their effort still inherits the session. There is
  * no mechanism to pin effort on an agent whose definition we do not own.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -381,13 +450,19 @@ function readFrontmatter(path) {
   return out;
 }
 
-/** Agent definitions resolve project-first, then user scope. */
-function findAgentDefinition(type, cwd) {
+/** Agent definition roots, project-first then user scope. Shared so the deny
+ *  message can only ever describe the definitions this resolver would find. */
+function agentRoots(cwd) {
   const roots = [];
   const project = process.env.CLAUDE_PROJECT_DIR || cwd;
   if (project) roots.push(join(project, ".claude", "agents"));
   roots.push(join(homedir(), ".claude", "agents"));
-  for (const root of roots) {
+  return roots;
+}
+
+/** Agent definitions resolve project-first, then user scope. */
+function findAgentDefinition(type, cwd) {
+  for (const root of agentRoots(cwd)) {
     const path = join(root, `${type}.md`);
     const fm = readFrontmatter(path);
     if (fm) return { fm, path };
@@ -424,9 +499,56 @@ process.stdin.on("end", () => {
     process.exit(0);
   };
 
-  const HOUSE =
-    "House types pin both: implementor/finder/scout (sonnet, medium), " +
-    "architect (opus, xhigh), verifier/documentarian (opus, high).";
+  // Derived, never hand-written. A literal list here went stale the moment two
+  // agents were added — the same failure the PINNED_TYPES array caused, and the
+  // reason this guard validates definitions instead of enumerating names. Read
+  // from the same roots findAgentDefinition uses, so the message can only ever
+  // describe what is actually installed.
+  // Lazy + memoised: this walks both agent roots and parses frontmatter, and the
+  // overwhelming majority of hook invocations allow the spawn and never need the
+  // message at all. Paying two directory scans on every Agent call to build a
+  // string nobody reads is the wrong trade.
+  let houseCache = null;
+  const HOUSE = () => (houseCache ??= buildHouse());
+  const buildHouse = () => {
+    const seen = new Map();
+    for (const root of agentRoots(cwd)) {
+      let names;
+      try {
+        names = readdirSync(root);
+      } catch {
+        continue; // root absent — the other one may still exist
+      }
+      for (const f of names) {
+        if (!f.endsWith(".md")) continue;
+        const type = f.slice(0, -3);
+        if (seen.has(type)) continue; // project scope already won
+        const fm = readFrontmatter(join(root, f));
+        if (!fm) continue; // unreadable — a later root may still resolve it
+        // Claim the type at the FIRST root whose file exists, well-pinned or not.
+        // findAgentDefinition stops there too, so a later root's copy is never the
+        // definition that actually gets validated. Recording only well-pinned files
+        // let a home-scope definition describe a type that project scope resolves,
+        // so the deny message advertised a pin the guard had not checked.
+        seen.set(type, fm.model && fm.effort ? `${fm.model.toLowerCase()}, ${fm.effort.toLowerCase()}` : null);
+      }
+    }
+    if (seen.size === 0) return "No house agent definitions were found to compare against.";
+    const byPin = new Map();
+    // Explicit comparator: sorting [type, pin] pairs with the default comparator
+    // stringifies each pair and sorts the comma-joined result, which orders by an
+    // accident of formatting rather than by type name.
+    for (const [type, pin] of [...seen].sort((a, b) => a[0].localeCompare(b[0]))) {
+      if (!pin) continue; // claimed above, but its definition does not pin both axes
+      byPin.set(pin, [...(byPin.get(pin) || []), type]);
+    }
+    if (byPin.size === 0) return "No fully-pinned house agent definitions were found.";
+    return (
+      "House types pin both: " +
+      [...byPin].map(([pin, types]) => `${types.join("/")} (${pin})`).join(", ") +
+      "."
+    );
+  };
 
   // A fork always runs on the parent's model — the Agent tool ignores `model`
   // for subagent_type "fork", so a `model:` on a fork looks compliant and isn't.
@@ -437,7 +559,7 @@ process.stdin.on("end", () => {
         "ignores `model` for subagent_type: fork, so a fork on a Fable/Opus session is a " +
         "frontier-model subagent. Use a house type and pass the context the worker needs " +
         "in its prompt. " +
-        HOUSE,
+        HOUSE(),
     );
   }
 
@@ -448,11 +570,11 @@ process.stdin.on("end", () => {
       FRONTIER.test(model)
         ? `Delegation policy: never spawn a frontier subagent (model: ${model}) — that tier is ` +
             "the orchestrator's, and it costs 2-3x a worker tier for work a worker should do. " +
-            HOUSE
+            HOUSE()
         : `Delegation policy: model "${model}" is not an approved worker tier. Approved: ` +
             "sonnet | opus | haiku, or a version-pinned ID of one (e.g. claude-sonnet-5). " +
             "This guard fails closed — an unrecognized tier is denied rather than allowed. " +
-            HOUSE,
+            HOUSE(),
     );
   }
 
@@ -513,7 +635,7 @@ process.stdin.on("end", () => {
     `Delegation policy: this spawn (${type || "no subagent_type"}) would inherit the session ` +
       "model and effort. Either use a house agent type — which pins both in its definition — " +
       "or pass model: sonnet | opus | haiku explicitly on the Agent call. " +
-      HOUSE,
+      HOUSE(),
   );
 });
 ```
@@ -727,7 +849,11 @@ start) and confirm the new types appear when spawning agents.
   `model:` on a fork looks compliant but has no effect — hence the hard deny.
 - The hook **fails open** on unparseable input and only evaluates
   `tool_name === "Agent"`; Workflow-internal `agent()` calls don't pass
-  through PreToolUse — pin models inside the workflow scripts themselves.
+  through PreToolUse. Inside a workflow script, pin with `agentType:` —
+  **not** `model:`. Measured: `agentType: "finder"` resolves to sonnet at
+  `effort=medium` per its definition, while `model: "sonnet"` alone still
+  runs at the session's effort, so a bare `model:` pin leaks the axis no
+  hook can observe.
 - Session-start language: `/model fable` (you are in the loop clarifying unknowns)
   or `/model opus` (decomposable, runs unattended), then `/mission <issue# | pr# |
   description>` for anything warranting a branch and a PR.

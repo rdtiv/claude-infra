@@ -132,11 +132,23 @@ TARGET_HOOKS="$TARGET_CLAUDE/hooks"
 TARGET_AGENTS="$TARGET_CLAUDE/agents"
 TARGET_COMMANDS="$TARGET_CLAUDE/commands"
 TARGET_SCRIPTS="$TARGET_CLAUDE/scripts"
+TARGET_WORKFLOWS="$TARGET_CLAUDE/workflows"
+
+# Marker claiming a workflow file as claude-infra-owned. See the workflows/ block.
+WF_MARKER="^// claude-infra-owned"
 
 WRITTEN=()
 SKIPPED=()
 WARNINGS=()
 RETIRED=()
+
+# Temp files are reaped by a trap, not by an rm on the next line. Under
+# `set -euo pipefail` any failure between mktemp and that rm — a downstream
+# settings.json that does not parse, say — aborts the script and leaks the file.
+# A trap fires on the abort too.
+SYNC_TMP=()
+cleanup_tmp() { [ "${#SYNC_TMP[@]}" -gt 0 ] && rm -f "${SYNC_TMP[@]}" || true; }
+trap cleanup_tmp EXIT
 
 # Retirement is driven by settings/retired.md — an explicit list of paths this repo
 # used to install and no longer does.
@@ -145,7 +157,7 @@ RETIRED=()
 # artifacts: a repo's own hook, its own slash commands. Absence from claude-infra is
 # not evidence of retirement, and where .claude/ is gitignored the deletion is
 # unrecoverable. Only paths named in the manifest are removed.
-retired_paths() { # $1 = subdir filter ("hooks" | "commands")
+retired_paths() { # $1 = subdir filter ("hooks" | "commands" | "scripts" | "workflows")
   local manifest="$CI_DIR/settings/retired.md" line
   [ -f "$manifest" ] || return 0
   while IFS= read -r line; do
@@ -156,15 +168,34 @@ retired_paths() { # $1 = subdir filter ("hooks" | "commands")
   done < "$manifest"
 }
 
-retire_from() { # $1 = subdir ("hooks" | "commands")
+retire_from() { # $1 = subdir ("hooks" | "commands" | "scripts" | "workflows")
   local rel dest
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     dest="$TARGET_CLAUDE/$rel"
     [ -f "$dest" ] || continue          # -f, not -e: never try to rm a directory
+    # Ownership governs DELETION as well as writing. The workflows/ copy loop
+    # refuses to overwrite an unmarked file because that directory is shared
+    # ground; retirement deletes by path, so without this check the very file the
+    # copy loop protects gets removed the moment a workflows/ entry is listed.
+    case "$rel" in
+      workflows/*)
+        if ! head -n 1 "$dest" | grep -q "$WF_MARKER"; then
+          echo "  $(basename "$rel"): listed for retirement but NOT claude-infra-owned — left untouched"
+          WARNINGS+=("$rel is listed in settings/retired.md but the downstream file lacks a claude-infra-owned marker comment on line 1; left untouched — delete it yourself if it is unwanted")
+          continue
+        fi
+        ;;
+    esac
     echo "  $(basename "$rel"): retired (listed in settings/retired.md)"
     RETIRED+=("$rel")
-    [ "$DRY_RUN" -eq 0 ] && rm -f "$dest"
+    # An `if`, not `[ ... ] && cmd`. As the last statement of the loop body this
+    # sets the loop's — and therefore the function's — exit status, so under
+    # `set -euo pipefail` a false test made `retire_from` return 1 and aborted the
+    # whole run. --dry-run took that branch by definition, so the preview the
+    # README tells operators to run first died silently at the first retirement
+    # candidate and never reached the summary.
+    if [ "$DRY_RUN" -eq 0 ]; then rm -f "$dest"; fi
   done < <(retired_paths "$1")
 }
 
@@ -233,10 +264,55 @@ fi
 echo
 
 # ---------------------------------------------------------------------------
+# 1c. Workflows — copy, but never clobber a workflow this repo does not own.
+#
+# .claude/workflows/ is SHARED GROUND in a way hooks/ and scripts/ are not: it is
+# a general Claude Code directory a downstream repo may already be using for its
+# own dynamic workflows. The loop below is source-driven, so a repo's own workflow
+# with no counterpart here is never visited and never removed — that is what makes
+# every category in this script additive, and it is why retirement is manifest-
+# driven rather than "delete what I don't recognise" (see retired_paths above).
+#
+# What source-driven does NOT cover is a NAME COLLISION. A plain `cp` would
+# overwrite a repo-owned file that merely shares our filename, and report it as
+# routine staleness. So ownership is explicit: we write only when the destination
+# is absent or already carries WF_MARKER on its first line. Anything else belongs
+# to the repo, and we warn instead of writing — the same ownership split that
+# keeps agent BODIES repo-owned and reports them as drift.
+# ---------------------------------------------------------------------------
+echo "--- workflows ---"
+if [ -d "$CI_DIR/workflows" ]; then
+  for f in "$CI_DIR"/workflows/*.js; do
+    [ -f "$f" ] || continue
+    name="$(basename "$f")"
+    dest="$TARGET_WORKFLOWS/$name"
+    if [ -f "$dest" ] && cmp -s "$f" "$dest"; then
+      echo "  $name: already up to date"
+      continue
+    fi
+    if [ -f "$dest" ] && ! head -n 1 "$dest" | grep -q "$WF_MARKER"; then
+      echo "  $name: exists downstream and is NOT claude-infra-owned — left untouched"
+      WARNINGS+=("workflows/$name exists downstream without a claude-infra-owned marker comment on line 1; left untouched — delete it to accept the claude-infra version")
+      continue
+    fi
+    [ -f "$dest" ] && echo "  $name: updated (was stale)" || echo "  $name: created"
+    WRITTEN+=("workflows/$name")
+    if [ "$DRY_RUN" -eq 0 ]; then
+      mkdir -p "$TARGET_WORKFLOWS"
+      cp "$f" "$dest"
+    fi
+  done
+  retire_from "workflows"
+else
+  echo "  (none in claude-infra)"
+fi
+echo
+
+# ---------------------------------------------------------------------------
 # 2. Agents — narrow frontmatter patch. model:/effort: only; body untouched.
 # ---------------------------------------------------------------------------
 echo "--- agents ---"
-AGENT_LOG="$(mktemp)"
+AGENT_LOG="$(mktemp)"; SYNC_TMP+=("$AGENT_LOG")
 CI_DIR="$CI_DIR" REPO="$REPO" DRY_RUN="$DRY_RUN" node --input-type=commonjs <<'NODE_AGENTS_EOF' | tee "$AGENT_LOG"
 const { readFileSync, writeFileSync, existsSync, readdirSync } = require("node:fs");
 const { join } = require("node:path");
@@ -403,7 +479,7 @@ rm -f "$AGENT_LOG"
 echo "--- settings.json ---"
 PREFIX='${CLAUDE_PROJECT_DIR:-$PWD}'
 if [ "$DRY_RUN" -eq 1 ]; then
-  TMP_SETTINGS="$(mktemp)"
+  TMP_SETTINGS="$(mktemp)"; SYNC_TMP+=("$TMP_SETTINGS")
   if [ -f "$TARGET_CLAUDE/settings.json" ]; then
     cp "$TARGET_CLAUDE/settings.json" "$TMP_SETTINGS"
   else
@@ -460,7 +536,8 @@ if [ -f "$GITIGNORE" ] && grep -qE '^\.claude/\*[[:space:]]*$' "$GITIGNORE"; the
   # provenance stamp up too, so it gets written but never tracked — every fresh
   # clone then reports "unstamped" and --scan quietly lies about what is deployed.
   for pat in '!.claude/agents/' '!.claude/hooks/' '!.claude/commands/' \
-             '!.claude/scripts/' '!.claude/.claude-infra-version'; do
+             '!.claude/scripts/' '!.claude/workflows/' \
+             '!.claude/.claude-infra-version'; do
     grep -qF "$pat" "$GITIGNORE" || missing+=("$pat")
   done
   if [ "${#missing[@]}" -gt 0 ]; then

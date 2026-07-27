@@ -27,6 +27,13 @@ Always Read the cited file at the cited location plus enough surrounding
 context to judge; Grep for callers when the claim crosses files. Read-only:
 never edit, never commit.
 
+Unanimity is not confirmation. When several agents already agree on a claim,
+treat the agreement as a shared prior rather than as evidence — same-family
+models trained on the same corpus inherit the same misconceptions, so N
+agents agreeing is closer to one opinion stated N times. Re-derive the
+mechanism from the code yourself; the only thing that counts is a line you
+quoted.
+
 Return: verdict, one-paragraph justification with quoted line(s), and — if
 CONFIRMED — the minimal fix shape (one sentence, not a patch).
 

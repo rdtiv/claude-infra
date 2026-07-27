@@ -78,6 +78,14 @@ Prefer agent isolation. If two streams would touch the same files, they are one 
    the repo's PR gate. Work the findings, not the score. You review implementor reports;
    you do not rewrite their work unless a package fails twice.
 
+   **Local review gate runs to clean BEFORE the remote one — never concurrently.**
+   `/review-pinned` costs no CI minutes and has no round-trip; a remote or CI reviewer
+   costs both on every push. Anything the local pass would have caught is a remote run
+   spent to learn what you could already have known. Running them in parallel is worse
+   than wasteful: two reviewers working the same diff land duplicate and conflicting
+   fixes on one branch, and you end up rebasing your own work onto a reviewer's
+   equivalent commit. Invite the remote gate once local is clean.
+
    All commits happen in a mission worktree — never the main checkout. Keep the task
    list current: a package flips to in-progress when its implementor spawns, and to
    completed when its work is *verified*, not when it is written.

@@ -15,7 +15,8 @@ set -uo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 fail=0
 section() { printf '\n=== %s ===\n' "$1"; }
-ok()  { echo "  PASS  $1"; }
+passes=0
+ok()  { echo "  PASS  $1"; passes=$((passes + 1)); }
 bad() { echo "  FAIL  $1"; fail=$((fail + 1)); }
 
 SCRATCH="$(mktemp -d)"
@@ -289,17 +290,95 @@ else
     || bad ".gitignore check omits scripts/ — synced scripts would stay untracked"
 fi
 
+section "workflows/ reaches both install paths"
+if [ ! -d "$DIR/workflows" ]; then
+  bad "workflows/ directory missing"
+else
+  ok "workflows/ directory exists"
+  grep -q "workflows" "$DIR/install.sh" && ok "install.sh references workflows/" \
+    || bad "install.sh does not reference workflows/ — workflow files never reach ~/.claude"
+  grep -q "'!.claude/workflows/'" "$DIR/sync-repo.sh" \
+    && ok ".gitignore check requires the workflows/ whitelist" \
+    || bad ".gitignore check omits workflows/ — synced workflows would stay untracked"
+
+  # node --check rejects this file: workflow scripts legally use top-level
+  # `return` and top-level `await`, both of which plain module/script parsing
+  # rejects. Instead, wrap the body (after the `meta` export) in an async
+  # function and let the Function constructor parse it — that accepts both
+  # top-level return and top-level await, which is what the harness actually does.
+  if node -e '
+const fs=require("fs");
+const raw=fs.readFileSync(process.argv[1],"utf8");
+const stripped=raw.replace(/^\s*(\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*/,"");
+if(!/^export\s+const\s+meta\s*=/.test(stripped)){console.error("meta is not the first statement");process.exit(1)}
+const body=raw.replace(/^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)export\s+const\s+meta/,"$1const meta");
+try{ new Function("args","budget","agent","parallel","pipeline","phase","log","workflow","return (async()=>{"+body+"})()"); }
+catch(e){ console.error(e.message); process.exit(1) }
+' "$DIR/workflows/code-review-pinned.js" > "$SCRATCH/wf.log" 2>&1; then
+    ok "code-review-pinned.js parses (meta-first, async-wrapped body)"
+  else
+    bad "code-review-pinned.js failed to parse — $(cat "$SCRATCH/wf.log")"
+  fi
+
+  # Every shipped workflow must carry the ownership marker on line 1, or the
+  # sync/install guard above would refuse to update its own file on the next
+  # run — a silent freeze on whatever revision happened to ship first.
+  for f in "$DIR"/workflows/*.js; do
+    [ -f "$f" ] || continue
+    n=$(basename "$f")
+    head -n 1 "$f" | grep -q "^// claude-infra-owned" \
+      && ok "$n carries the claude-infra-owned marker on line 1" \
+      || bad "$n missing the claude-infra-owned marker on line 1 — sync/install would never update it"
+  done
+
+  # Regression guard: naming this workflow "code-review" would shadow the
+  # vendor's built-in workflow of the same name, which we deliberately keep
+  # reachable (see commands/review-pinned.md). It must be named
+  # "code-review-pinned" instead.
+  if grep -q 'name: "code-review"' "$DIR/workflows/code-review-pinned.js"; then
+    bad "code-review-pinned.js sets name: \"code-review\" — this shadows the vendor workflow"
+  else
+    ok "code-review-pinned.js does not shadow the vendor's code-review workflow"
+  fi
+  grep -q 'name: "code-review-pinned"' "$DIR/workflows/code-review-pinned.js" \
+    && ok "code-review-pinned.js declares meta.name = code-review-pinned" \
+    || bad "code-review-pinned.js does not declare meta.name = code-review-pinned"
+
+  # commands/review-pinned.md must name a workflow that actually ships. Another
+  # session is authoring that command file in parallel; if it hasn't landed yet
+  # this just fails like any other assertion until it does.
+  cmd="$DIR/commands/review-pinned.md"
+  if [ ! -f "$cmd" ]; then
+    bad "commands/review-pinned.md missing — cannot verify it names a shipped workflow"
+  else
+    wfname=$(grep -oE 'name:[[:space:]]*"[A-Za-z0-9_-]+"' "$cmd" | head -1 | sed -E 's/name:[[:space:]]*"([^"]+)"/\1/')
+    if [ -z "$wfname" ]; then
+      bad "commands/review-pinned.md does not name a workflow"
+    elif [ -f "$DIR/workflows/$wfname.js" ]; then
+      ok "commands/review-pinned.md names workflow '$wfname', which ships as workflows/$wfname.js"
+    else
+      bad "commands/review-pinned.md names workflow '$wfname', but workflows/$wfname.js does not exist"
+    fi
+  fi
+fi
+
 section "retirement manifest covers what this branch deleted"
 mf="$DIR/settings/retired.md"
 if [ ! -f "$mf" ]; then
   bad "settings/retired.md is missing"
 else
+  # Widened from (hooks|commands) to also cover scripts/ and workflows/. This
+  # also closes a pre-existing gap: scripts/ retirement already runs in
+  # sync-repo.sh (retire_from "scripts") but this cross-check never covered it.
   gone=$(git -C "$DIR" diff --name-only --diff-filter=D origin/main...HEAD 2>/dev/null \
-         | grep -E '^(hooks|commands)/' || true)
+         | grep -E '^(hooks|commands|scripts|workflows)/' || true)
   miss=0
-  for p in $gone; do
+  # read, not `for p in $gone` — an unquoted expansion word-splits and glob-expands
+  # any deleted path containing a space or a metacharacter.
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
     grep -qxF "$p" "$mf" || { bad "$p deleted but absent from settings/retired.md"; miss=1; }
-  done
+  done <<< "$gone"
   [ "$miss" -eq 0 ] && ok "every deleted hook/command is listed in the manifest"
   # A stale entry is the other direction: still listed, but back in the repo.
   stale=0
@@ -461,6 +540,84 @@ grep -q 'session-protocol' "$H4/.claude/settings.json" && bad "settings.json sti
   || ok "install.sh stripped session-protocol from settings.json"
 
 # ---------------------------------------------------------------------------
+# install.sh has its OWN copy of the workflows ownership guard, on the user-scope
+# path. The sync-repo section below covers the repo-scope half; without this, a
+# regression in one path would hide behind the other passing.
+section "install.sh does not clobber an operator's own workflow (scratch HOME)"
+H5="$SCRATCH/home5"; mkdir -p "$H5"
+CLAUDE_INFRA_SKIP_VERIFY=1 HOME="$H5" bash "$DIR/install.sh" > "$SCRATCH/i7.log" 2>&1
+[ -f "$H5/.claude/workflows/code-review-pinned.js" ] \
+  && ok "install.sh delivered workflows/code-review-pinned.js to ~/.claude" \
+  || bad "install.sh did not deliver the workflow to ~/.claude"
+# An operator's hand-written file at the same path carries no marker.
+printf '// hand-written by the operator, not ours\nexports.meta={name:"mine"}\n' \
+  > "$H5/.claude/workflows/code-review-pinned.js"
+cp "$H5/.claude/workflows/code-review-pinned.js" "$SCRATCH/home5-seed.js"
+CLAUDE_INFRA_SKIP_VERIFY=1 HOME="$H5" bash "$DIR/install.sh" > "$SCRATCH/i8.log" 2>&1
+cmp -s "$SCRATCH/home5-seed.js" "$H5/.claude/workflows/code-review-pinned.js" \
+  && ok "install.sh left an unmarked same-named workflow untouched" \
+  || bad "install.sh overwrote an operator-owned workflow merely because the name collided"
+grep -q 'not claude-infra-owned' "$SCRATCH/i8.log" \
+  && ok "install.sh warns about the unmarked collision" \
+  || bad "install.sh overwrote or skipped silently — no collision warning"
+# The marker test is ANCHORED, not a substring search. A downstream first line that
+# merely mentions the marker — including one that explicitly disclaims it — must not
+# claim ownership, or the negation would authorise the overwrite it is warning about.
+printf '// forked from a claude-infra-owned base, do not sync\nmodule.exports=()=>{}\n' \
+  > "$H5/.claude/workflows/code-review-pinned.js"
+cp "$H5/.claude/workflows/code-review-pinned.js" "$SCRATCH/negation-seed.js"
+CLAUDE_INFRA_SKIP_VERIFY=1 HOME="$H5" bash "$DIR/install.sh" > "$SCRATCH/i10.log" 2>&1
+cmp -s "$SCRATCH/negation-seed.js" "$H5/.claude/workflows/code-review-pinned.js" \
+  && ok "a first line that merely mentions the marker does not claim ownership" \
+  || bad "substring match on the marker — a file disclaiming ownership was overwritten"
+# The other direction: a marked file must still be refreshed, or ours freezes.
+cp "$DIR/workflows/code-review-pinned.js" "$H5/.claude/workflows/code-review-pinned.js"
+printf '\n// stale tail\n' >> "$H5/.claude/workflows/code-review-pinned.js"
+CLAUDE_INFRA_SKIP_VERIFY=1 HOME="$H5" bash "$DIR/install.sh" > "$SCRATCH/i9.log" 2>&1
+cmp -s "$DIR/workflows/code-review-pinned.js" "$H5/.claude/workflows/code-review-pinned.js" \
+  && ok "install.sh refreshed a stale marked workflow" \
+  || bad "install.sh left a marked (claude-infra-owned) workflow stale"
+
+# ---------------------------------------------------------------------------
+# Ownership must govern DELETION, not only writing. This was a real data-loss bug:
+# the copy loop refused to overwrite an unmarked workflow, while the retirement
+# loop three lines away deleted the same file by path with no marker check. It is
+# reachable as soon as a workflows/ entry lands in the manifest, which the
+# manifest's own header invites. Both scopes get the same test.
+section "retirement respects workflow ownership (scratch HOME + downstream)"
+RREPO="$SCRATCH/retrepo"
+cp -R "$DIR" "$RREPO" 2>/dev/null || true
+rm -rf "$RREPO/.git"
+if [ ! -f "$RREPO/install.sh" ]; then
+  bad "could not stage a scratch copy of the repo for the retirement test"
+else
+  rm -f "$RREPO/workflows/code-review-pinned.js"     # as if removed upstream
+  printf 'workflows/code-review-pinned.js\n' >> "$RREPO/settings/retired.md"
+  # user scope
+  H6="$SCRATCH/home6"; mkdir -p "$H6/.claude/workflows"
+  printf '// operator-owned, no marker\nmodule.exports=()=>{}\n' > "$H6/.claude/workflows/code-review-pinned.js"
+  cp "$H6/.claude/workflows/code-review-pinned.js" "$SCRATCH/ret-seed.js"
+  CLAUDE_INFRA_SKIP_VERIFY=1 HOME="$H6" bash "$RREPO/install.sh" > "$SCRATCH/ret1.log" 2>&1
+  cmp -s "$SCRATCH/ret-seed.js" "$H6/.claude/workflows/code-review-pinned.js" \
+    && ok "install.sh did not retire an unmarked operator-owned workflow" \
+    || bad "install.sh DELETED an unmarked operator-owned workflow named in the manifest"
+  # and a marked one at the same path must still be retired
+  printf '// claude-infra-owned — installed by claude-infra\nmodule.exports=()=>{}\n' > "$H6/.claude/workflows/code-review-pinned.js"
+  CLAUDE_INFRA_SKIP_VERIFY=1 HOME="$H6" bash "$RREPO/install.sh" > "$SCRATCH/ret2.log" 2>&1
+  [ -f "$H6/.claude/workflows/code-review-pinned.js" ] \
+    && bad "install.sh failed to retire a MARKED workflow listed in the manifest" \
+    || ok "install.sh retired a marked workflow listed in the manifest"
+  # repo scope
+  RDOWN="$SCRATCH/retdown"; mkdir -p "$RDOWN/.claude/workflows"
+  git -C "$RDOWN" init -q 2>/dev/null || true
+  printf '// operator-owned, no marker\nmodule.exports=()=>{}\n' > "$RDOWN/.claude/workflows/code-review-pinned.js"
+  bash "$RREPO/sync-repo.sh" "$RDOWN" > "$SCRATCH/ret3.log" 2>&1 || true
+  cmp -s "$SCRATCH/ret-seed.js" "$RDOWN/.claude/workflows/code-review-pinned.js" \
+    && ok "sync-repo did not retire an unmarked repo-owned workflow" \
+    || bad "sync-repo DELETED an unmarked repo-owned workflow named in the manifest"
+fi
+
+# ---------------------------------------------------------------------------
 section "sync-repo (scratch downstream copy)"
 if [ -f "$DIR/sync-repo.sh" ]; then
   DOWN="$SCRATCH/downstream"
@@ -482,11 +639,31 @@ if [ -f "$DIR/sync-repo.sh" ]; then
   printf 'repo-owned slash command\n' > "$DOWN/.claude/commands/deploy.md"
   mkdir -p "$DOWN/.claude/hooks/lib"   # a subdir must not abort the run
   printf 'shared\n' > "$DOWN/.claude/hooks/lib/shared.sh"
+  # Workflows collision fixtures. workflows/ is SHARED GROUND — a repo may
+  # already have its own unrelated workflow AND may happen to have one with the
+  # same filename as ours. Neither is ours to overwrite without the marker.
+  mkdir -p "$DOWN/.claude/workflows"
+  printf 'exports.meta = { name: "custom" };\n// a repo-owned workflow, no counterpart upstream\n' \
+    > "$DOWN/.claude/workflows/custom.js"
+  printf '// this is a downstream-owned file that happens to share our filename\nexports.meta = { name: "not-ours" };\n' \
+    > "$DOWN/.claude/workflows/code-review-pinned.js"
+  cp "$DOWN/.claude/workflows/custom.js" "$SCRATCH/custom-seed.js"
+  cp "$DOWN/.claude/workflows/code-review-pinned.js" "$SCRATCH/collision-seed.js"
   bodies_before=$(cat "$DOWN"/.claude/agents/*.md | shasum | cut -d' ' -f1)
 
   # --dry-run must retire nothing: recursive checksum identical before and after.
   DOWN_SUM_BEFORE=$(find "$DOWN" -type f -exec shasum {} \; | sort | shasum | cut -d' ' -f1)
   bash "$DIR/sync-repo.sh" "$DOWN" --dry-run > "$SCRATCH/sync-dry.log" 2>&1
+  dry_rc=$?
+  # Exit code AND completion, not just "nothing changed". A dry run that dies at
+  # the first retirement candidate also leaves the tree unchanged, so the checksum
+  # assertion below passes for the wrong reason — which is exactly how a real
+  # abort-on-exit-1 bug survived here undetected.
+  [ "$dry_rc" -eq 0 ] && ok "--dry-run exits 0" \
+    || bad "--dry-run exited $dry_rc — it aborted partway and never finished the preview"
+  grep -q '=== summary ===' "$SCRATCH/sync-dry.log" \
+    && ok "--dry-run ran to completion (reached the summary)" \
+    || bad "--dry-run never reached the summary — it died before previewing later sections"
   DOWN_SUM_AFTER=$(find "$DOWN" -type f -exec shasum {} \; | sort | shasum | cut -d' ' -f1)
   [ "$DOWN_SUM_BEFORE" = "$DOWN_SUM_AFTER" ] && ok "--dry-run retires nothing (checksum unchanged)" \
     || bad "--dry-run modified/removed files in the downstream tree"
@@ -511,6 +688,31 @@ if [ -f "$DIR/sync-repo.sh" ]; then
   [ -f "$DOWN/.claude/hooks/lib/shared.sh" ] \
     && ok "subdirectory under hooks/ survived and did not abort the run" \
     || bad "a subdirectory under hooks/ was removed or aborted the sync"
+
+  # workflows/ collision handling — the important one. A source-driven copy
+  # loop must never touch a downstream file it doesn't own, even when the
+  # filename happens to match.
+  cmp -s "$SCRATCH/custom-seed.js" "$DOWN/.claude/workflows/custom.js" \
+    && ok "custom.js (no upstream counterpart) is untouched by sync" \
+    || bad "custom.js was modified by sync — the copy loop touched a file it doesn't own"
+  cmp -s "$SCRATCH/collision-seed.js" "$DOWN/.claude/workflows/code-review-pinned.js" \
+    && ok "unmarked code-review-pinned.js (name collision) was NOT overwritten" \
+    || bad "sync-repo overwrote a downstream-owned file merely because the filename collided"
+  # Match the refusal text, not just the filename — the filename also appears on a
+  # routine "created"/"updated" line, so grepping for it alone would pass even if
+  # the guard never fired and the file had simply been overwritten.
+  grep -q 'NOT claude-infra-owned' "$SCRATCH/sync.log" \
+    && ok "sync warns that the colliding workflow is not claude-infra-owned" \
+    || bad "sync did not warn about the unmarked code-review-pinned.js collision"
+
+  # The other direction: a MARKED file (claude-infra-owned) must still be
+  # updated. A guard that never writes is as broken as one that always writes.
+  printf '// claude-infra-owned — installed by claude-infra\nexports.meta = { name: "stale-marked-version" };\n' \
+    > "$DOWN/.claude/workflows/code-review-pinned.js"
+  bash "$DIR/sync-repo.sh" "$DOWN" > "$SCRATCH/sync2.log" 2>&1
+  cmp -s "$DIR/workflows/code-review-pinned.js" "$DOWN/.claude/workflows/code-review-pinned.js" \
+    && ok "marked code-review-pinned.js WAS overwritten with the claude-infra version" \
+    || bad "sync-repo left a marked (claude-infra-owned) workflow file stale"
   # The sync must have run to completion, not died partway on the subdir.
   [ -f "$DOWN/.claude/.claude-infra-version" ] \
     && ok "sync ran to completion (provenance stamp written)" \
@@ -587,8 +789,27 @@ fi
 
 # ---------------------------------------------------------------------------
 printf '\n'
+# ---------------------------------------------------------------------------
+# The README quotes a check count, and a hand-maintained number drifts the moment
+# anyone adds a check — it already shipped stale twice on the branch that added
+# this section. Assert it instead of trusting it. `+ 1` accounts for this check's
+# own PASS, which has not been emitted yet.
+section "README documents the real check count"
+doc_count=$(grep -oE '^[0-9]+ checks:' "$DIR/README.md" | head -1 | grep -oE '^[0-9]+' || true)
+# Count FAILures too. Comparing against passes alone reported a spurious count
+# mismatch whenever an earlier check failed — a second, misleading failure
+# stacked on top of the real one.
+expected=$((passes + fail + 1))
+if [ -z "$doc_count" ]; then
+  bad "README has no '<N> checks:' line to compare against"
+elif [ "$doc_count" -eq "$expected" ]; then
+  ok "README says $doc_count checks, and $expected ran"
+else
+  bad "README says $doc_count checks but $expected ran — update the count in README.md"
+fi
+
 if [ "$fail" -eq 0 ]; then
-  echo "verify.sh: ALL CHECKS PASSED"
+  echo "verify.sh: ALL CHECKS PASSED ($passes checks)"
   exit 0
 else
   echo "verify.sh: $fail CHECK(S) FAILED"

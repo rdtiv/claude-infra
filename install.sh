@@ -5,8 +5,11 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Marker claiming a workflow file as installer-owned. See the workflows/ block below.
+WF_MARKER="^// claude-infra-owned"
+
 mkdir -p "$HOME/.claude/agents" "$HOME/.claude/hooks" "$HOME/.claude/commands" \
-         "$HOME/.claude/rules" "$HOME/.claude/scripts"
+         "$HOME/.claude/rules" "$HOME/.claude/scripts" "$HOME/.claude/workflows"
 cp "$DIR"/agents/*.md "$HOME/.claude/agents/"
 cp "$DIR"/hooks/* "$HOME/.claude/hooks/"
 cp "$DIR"/commands/*.md "$HOME/.claude/commands/"
@@ -15,7 +18,27 @@ cp "$DIR"/commands/*.md "$HOME/.claude/commands/"
 # references them lands, or /mission points at a file that isn't there.
 cp "$DIR"/scripts/* "$HOME/.claude/scripts/"
 chmod +x "$HOME"/.claude/scripts/* 2>/dev/null || true
-echo "agents, hooks, commands, scripts copied to ~/.claude"
+
+# workflows/ holds dynamic-workflow scripts the harness DISCOVERS by name and runs
+# itself — no chmod, it reads them rather than executing them.
+#
+# Unlike hooks/ and scripts/, which this repo owns outright, ~/.claude/workflows/ is
+# SHARED GROUND: it is a general Claude Code directory an operator may already have
+# populated by hand. A same-name collision there is not ours to resolve by
+# overwriting. So we claim only files carrying WF_MARKER and leave anything else
+# exactly as found — the same ownership split that keeps agent BODIES repo-owned.
+for f in "$DIR"/workflows/*.js; do
+  [ -f "$f" ] || continue
+  name="$(basename "$f")"
+  dest="$HOME/.claude/workflows/$name"
+  if [ -f "$dest" ] && ! head -n 1 "$dest" | grep -q "$WF_MARKER"; then
+    echo "  ! $name already exists in ~/.claude/workflows and is not claude-infra-owned"
+    echo "    — left untouched. Delete it to accept the claude-infra version."
+    continue
+  fi
+  cp "$f" "$dest"
+done
+echo "agents, hooks, commands, scripts, workflows copied to ~/.claude"
 
 # Retire artifacts deleted upstream, per settings/retired.md. Copying is not enough:
 # a file removed from this repo stays on every machine that installed it before the
@@ -24,10 +47,26 @@ echo "agents, hooks, commands, scripts copied to ~/.claude"
 #
 # Driven by the manifest rather than "delete anything not in the repo" — the latter
 # would remove the operator's own agents, hooks, and commands from ~/.claude.
+#
+# Ownership applies to DELETION too, not just to writing. The copy loop above
+# refuses to overwrite an unmarked workflow because ~/.claude/workflows/ is shared
+# ground — but retirement deletes by path, so without this the same unmarked file
+# the copy loop protects would be removed outright the moment a workflows/ entry
+# lands in the manifest. Retiring our own file must never take an operator's file
+# that merely shares its name.
 while IFS= read -r rel; do
   case "$rel" in ""|"<!--"*|*"-->"|" "*) continue ;; esac
   target="$HOME/.claude/$rel"
   if [ -f "$target" ]; then
+    case "$rel" in
+      workflows/*)
+        if ! head -n 1 "$target" | grep -q "$WF_MARKER"; then
+          echo "  ! .claude/$rel is listed for retirement but is not claude-infra-owned"
+          echo "    — left untouched. Delete it yourself if you no longer want it."
+          continue
+        fi
+        ;;
+    esac
     rm -f "$target"
     echo "retired: .claude/$rel"
   fi

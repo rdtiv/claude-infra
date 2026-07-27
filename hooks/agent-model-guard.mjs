@@ -26,7 +26,7 @@
  * explicit approved `model:` and their effort still inherits the session. There is
  * no mechanism to pin effort on an agent whose definition we do not own.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -60,13 +60,19 @@ function readFrontmatter(path) {
   return out;
 }
 
-/** Agent definitions resolve project-first, then user scope. */
-function findAgentDefinition(type, cwd) {
+/** Agent definition roots, project-first then user scope. Shared so the deny
+ *  message can only ever describe the definitions this resolver would find. */
+function agentRoots(cwd) {
   const roots = [];
   const project = process.env.CLAUDE_PROJECT_DIR || cwd;
   if (project) roots.push(join(project, ".claude", "agents"));
   roots.push(join(homedir(), ".claude", "agents"));
-  for (const root of roots) {
+  return roots;
+}
+
+/** Agent definitions resolve project-first, then user scope. */
+function findAgentDefinition(type, cwd) {
+  for (const root of agentRoots(cwd)) {
     const path = join(root, `${type}.md`);
     const fm = readFrontmatter(path);
     if (fm) return { fm, path };
@@ -103,9 +109,56 @@ process.stdin.on("end", () => {
     process.exit(0);
   };
 
-  const HOUSE =
-    "House types pin both: implementor/finder/scout (sonnet, medium), " +
-    "architect (opus, xhigh), verifier/documentarian (opus, high).";
+  // Derived, never hand-written. A literal list here went stale the moment two
+  // agents were added — the same failure the PINNED_TYPES array caused, and the
+  // reason this guard validates definitions instead of enumerating names. Read
+  // from the same roots findAgentDefinition uses, so the message can only ever
+  // describe what is actually installed.
+  // Lazy + memoised: this walks both agent roots and parses frontmatter, and the
+  // overwhelming majority of hook invocations allow the spawn and never need the
+  // message at all. Paying two directory scans on every Agent call to build a
+  // string nobody reads is the wrong trade.
+  let houseCache = null;
+  const HOUSE = () => (houseCache ??= buildHouse());
+  const buildHouse = () => {
+    const seen = new Map();
+    for (const root of agentRoots(cwd)) {
+      let names;
+      try {
+        names = readdirSync(root);
+      } catch {
+        continue; // root absent — the other one may still exist
+      }
+      for (const f of names) {
+        if (!f.endsWith(".md")) continue;
+        const type = f.slice(0, -3);
+        if (seen.has(type)) continue; // project scope already won
+        const fm = readFrontmatter(join(root, f));
+        if (!fm) continue; // unreadable — a later root may still resolve it
+        // Claim the type at the FIRST root whose file exists, well-pinned or not.
+        // findAgentDefinition stops there too, so a later root's copy is never the
+        // definition that actually gets validated. Recording only well-pinned files
+        // let a home-scope definition describe a type that project scope resolves,
+        // so the deny message advertised a pin the guard had not checked.
+        seen.set(type, fm.model && fm.effort ? `${fm.model.toLowerCase()}, ${fm.effort.toLowerCase()}` : null);
+      }
+    }
+    if (seen.size === 0) return "No house agent definitions were found to compare against.";
+    const byPin = new Map();
+    // Explicit comparator: sorting [type, pin] pairs with the default comparator
+    // stringifies each pair and sorts the comma-joined result, which orders by an
+    // accident of formatting rather than by type name.
+    for (const [type, pin] of [...seen].sort((a, b) => a[0].localeCompare(b[0]))) {
+      if (!pin) continue; // claimed above, but its definition does not pin both axes
+      byPin.set(pin, [...(byPin.get(pin) || []), type]);
+    }
+    if (byPin.size === 0) return "No fully-pinned house agent definitions were found.";
+    return (
+      "House types pin both: " +
+      [...byPin].map(([pin, types]) => `${types.join("/")} (${pin})`).join(", ") +
+      "."
+    );
+  };
 
   // A fork always runs on the parent's model — the Agent tool ignores `model`
   // for subagent_type "fork", so a `model:` on a fork looks compliant and isn't.
@@ -116,7 +169,7 @@ process.stdin.on("end", () => {
         "ignores `model` for subagent_type: fork, so a fork on a Fable/Opus session is a " +
         "frontier-model subagent. Use a house type and pass the context the worker needs " +
         "in its prompt. " +
-        HOUSE,
+        HOUSE(),
     );
   }
 
@@ -127,11 +180,11 @@ process.stdin.on("end", () => {
       FRONTIER.test(model)
         ? `Delegation policy: never spawn a frontier subagent (model: ${model}) — that tier is ` +
             "the orchestrator's, and it costs 2-3x a worker tier for work a worker should do. " +
-            HOUSE
+            HOUSE()
         : `Delegation policy: model "${model}" is not an approved worker tier. Approved: ` +
             "sonnet | opus | haiku, or a version-pinned ID of one (e.g. claude-sonnet-5). " +
             "This guard fails closed — an unrecognized tier is denied rather than allowed. " +
-            HOUSE,
+            HOUSE(),
     );
   }
 
@@ -192,6 +245,6 @@ process.stdin.on("end", () => {
     `Delegation policy: this spawn (${type || "no subagent_type"}) would inherit the session ` +
       "model and effort. Either use a house agent type — which pins both in its definition — " +
       "or pass model: sonnet | opus | haiku explicitly on the Agent call. " +
-      HOUSE,
+      HOUSE(),
   );
 });

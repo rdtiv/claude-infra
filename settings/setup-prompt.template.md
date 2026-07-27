@@ -5,8 +5,11 @@
 > no-git fallback — paste it into a Claude Code session on the target machine
 > and say *"execute this"*. Everything needed is inline. Safe to re-run;
 > every step is idempotent. Note: the repo also carries
-> `commands/mission.md` (worktree lifecycle) — if installing from this file,
-> copy that from the repo when you can.
+> `commands/mission.md` (worktree lifecycle), `commands/review-pinned.md` and
+> `workflows/code-review-pinned.js` (the local review gate) — if installing
+> from this file, copy those from the repo when you can. Without them the
+> `reproducer` agent below installs correctly but nothing invokes it: it exists
+> only to serve that workflow.
 
 **What it installs:** a two-tier delegation policy. The main session
 (Fable or Opus, chosen at session start via `/model`) designs, specs, and
@@ -53,7 +56,7 @@ mechanically enforced.
    swap the hook command to an absolute node path).
 
 **Repo-level install (optional, per repository):** for repos that also run
-cloud sessions (where `~/.claude` doesn't exist), copy the same six agent
+cloud sessions (where `~/.claude` doesn't exist), copy the same seven agent
 files + the hooks into the repo's `.claude/agents/` and `.claude/hooks/`, add
 the same `PreToolUse` blocks to the repo's `.claude/settings.json`, whitelist
 `.claude/agents/` and `.claude/hooks/` in `.gitignore` if `.claude/*` is
@@ -87,6 +90,12 @@ agent bodies.
 
 ```markdown
 <!-- include:agents/scout.md -->
+```
+
+### `~/.claude/agents/reproducer.md`
+
+```markdown
+<!-- include:agents/reproducer.md -->
 ```
 
 ### `~/.claude/agents/architect.md`
@@ -197,7 +206,11 @@ start) and confirm the new types appear when spawning agents.
   `model:` on a fork looks compliant but has no effect — hence the hard deny.
 - The hook **fails open** on unparseable input and only evaluates
   `tool_name === "Agent"`; Workflow-internal `agent()` calls don't pass
-  through PreToolUse — pin models inside the workflow scripts themselves.
+  through PreToolUse. Inside a workflow script, pin with `agentType:` —
+  **not** `model:`. Measured: `agentType: "finder"` resolves to sonnet at
+  `effort=medium` per its definition, while `model: "sonnet"` alone still
+  runs at the session's effort, so a bare `model:` pin leaks the axis no
+  hook can observe.
 - Session-start language: `/model fable` (you are in the loop clarifying unknowns)
   or `/model opus` (decomposable, runs unattended), then `/mission <issue# | pr# |
   description>` for anything warranting a branch and a PR.
