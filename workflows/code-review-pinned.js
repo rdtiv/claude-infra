@@ -203,9 +203,9 @@ function canonFile(raw) {
 }
 // `order` must be a property of the DIFF, not of the run. Minting it from a shared
 // counter incremented inside each finder's async callback made it depend on which
-// agent's network call resolved first — so tie-break
-// ranking, both keyed on order, moved with network jitter. Every caller passes a
-// base derived from its own fixed index instead.
+// agent's network call resolved first — so tie-break ranking, which is keyed on
+// order, moved with network jitter. Every caller passes a base derived from its
+// own fixed index instead.
 function ingest(raw, cap, kind, label, trustKind, base) {
   const all = Array.isArray(raw) ? raw : []
   const kept = all.slice(0, cap).map((c, idx) => {
@@ -250,9 +250,14 @@ if (pool.length === 0) {
 }
 
 // ── Verify ───────────────────────────────────────────────────────────
-// One parameterised group judge, used by both stages. Retry once, then RETAIN and
-// FLAG rather than drop: the fork discarded every candidate at a location whose
-// verifier agent died, with no log, so real findings vanished invisibly.
+// Group judge for the verify stage. Retry once, then RETAIN and FLAG rather than
+// drop: the fork discarded every candidate at a location whose verifier agent
+// died, with no log, so real findings vanished invisibly.
+//
+// The cfg indirection is now single-caller — it existed to serve the screen as
+// well. Kept rather than inlined because the sweep re-enters this same path and a
+// future pre- or post-verify stage is the obvious place to extend; collapsing it
+// would trade a named seam for a slightly shorter function.
 async function judgeGroup(group, cfg) {
   if (group.length === 0) return []
   const short = group[0].file.split("/").pop()
@@ -327,7 +332,9 @@ if (P.sweep) {
 let surviving = judged.filter(c => c.verdict && c.verdict !== "REFUTED")
 const refuted = judged
   .filter(c => c.verdict === "REFUTED")
-  .map(c => ({ file: c.file, line: c.line, summary: c.summary, stage: "verify" }))
+  // No `stage` field: REFUTED can now only come from the verifier, so a constant
+  // would imply a distinction that no longer exists.
+  .map(c => ({ file: c.file, line: c.line, summary: c.summary }))
 log("verify: " + surviving.length + " kept, " + refuted.length + " refuted")
 
 // Total order — rank, then file, then line, then ingest order. The fork sorted on

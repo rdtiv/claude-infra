@@ -36,9 +36,9 @@ notification. When they arrive:
 - A finding marked `empirical: reproduced` was actually made to happen — say so,
   and give it precedence. One marked `did not reproduce` was demoted rather than
   dropped; report it as unconfirmed rather than as a bug.
-- Surface any `WARNING:` prefix on the summary verbatim. A tree-dirty warning or a
-  control-sample disagreement means the run itself is suspect, and that matters
-  more than any individual finding.
+- Surface any `WARNING:` prefix on the summary verbatim. A tree-dirty warning or
+  an agent-error warning means the run itself is suspect, and that matters more
+  than any individual finding — a short report is not evidence of a clean diff.
 - Work the findings, not the count.
 
 ## When to run this
