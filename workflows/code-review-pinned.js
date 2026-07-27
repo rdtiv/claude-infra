@@ -1,12 +1,11 @@
 // claude-infra-owned — installed by claude-infra; local edits are overwritten.
 export const meta = {
   name: "code-review-pinned",
-  description: "Pinned-fleet code review: scout scope, sonnet finders per angle, a cheap refutation screen, opus verifiers per location, an optional empirical reproduction gate, then a ranked, capped report. Every subagent runs a pinned agent type — no model or effort is ever inherited from the session.",
+  description: "Pinned-fleet code review: scout scope, sonnet finders per angle, opus verifiers per location, an optional empirical reproduction gate, then a ranked, capped report. Every subagent runs a pinned agent type — no model or effort is ever inherited from the session.",
   whenToUse: "Invoked explicitly by the /review-pinned command. Do NOT select this for a generic review request, and do NOT use it in place of the built-in code-review workflow — that one stays reachable on purpose. Args: \"<level> [target]\" where level is low | medium | high | xhigh | max (default high), and target is an optional PR number, branch, ref range, path, or free-form scope instruction. Include the token no-exec in the target to disable the reproduction gate, which executes tests and scratch scripts.",
   phases: [
     { title: "Scope", detail: "Pin the diff command, changed files, and applicable conventions" },
     { title: "Find", detail: "One finder per correctness angle plus one covering all cleanup angles" },
-    { title: "Screen", detail: "Cheap refutation pass — kills what is killable from the code alone" },
     { title: "Verify", detail: "Senior verifier per location — CONFIRMED / PLAUSIBLE / REFUTED" },
     { title: "Sweep", detail: "Fresh finder hunting only for gaps (xhigh/max)" },
     { title: "Reproduce", detail: "Empirical gate — make confirmed findings actually happen (high+)" },
@@ -15,22 +14,18 @@ export const meta = {
 }
 
 // ── Levels ────────────────────────────────────────────────────────────────────
-// Below `high` we degrade by BREADTH, never by RIGOR: the screen, the verdict
-// ladder and the verifier tier are identical at every level, so a `low` finding
+// Below `high` we degrade by BREADTH, never by RIGOR: the verdict ladder and
+// the verifier tier are identical at every level, so a `low` finding
 // means exactly what a `max` finding means. Only the number of angles, the caps,
 // and the optional stages change.
 const LEVEL_PARAMS = {
-  low:    { angles: 1, cleanup: false, perAngle: 4,  maxFindings: 3,  sweep: false, repro: 0, control: 0 },
-  medium: { angles: 2, cleanup: true,  perAngle: 5,  maxFindings: 5,  sweep: false, repro: 0, control: 0 },
-  // control > 0 from `high` up: high is the DEFAULT level, and it runs the screen
-  // at full strength. Auditing false kills only at xhigh/max meant the level you
-  // actually use was the one level where a wrongly-refuted finding went undetected.
-  high:   { angles: 3, cleanup: true,  perAngle: 6,  maxFindings: 10, sweep: false, repro: 2, control: 2 },
-  xhigh:  { angles: 5, cleanup: true,  perAngle: 8,  maxFindings: 15, sweep: true,  repro: 3, control: 2 },
-  max:    { angles: 5, cleanup: true,  perAngle: 10, maxFindings: 20, sweep: true,  repro: 5, control: 3 },
+  low:    { angles: 1, cleanup: false, perAngle: 4,  maxFindings: 3,  sweep: false, repro: 0 },
+  medium: { angles: 2, cleanup: true,  perAngle: 5,  maxFindings: 5,  sweep: false, repro: 0 },
+  high:   { angles: 3, cleanup: true,  perAngle: 6,  maxFindings: 10, sweep: false, repro: 2 },
+  xhigh:  { angles: 5, cleanup: true,  perAngle: 8,  maxFindings: 15, sweep: true,  repro: 3 },
+  max:    { angles: 5, cleanup: true,  perAngle: 10, maxFindings: 20, sweep: true,  repro: 5 },
 }
 const SWEEP_MAX = 8
-const SCREEN_MIN = 6   // below this the funnel saves nothing — skip it
 
 const RAW = (typeof args === "string" ? args : "").trim()
 const FIRST = RAW.split(/\s+/)[0] || ""
@@ -82,22 +77,6 @@ const CANDIDATES_SCHEMA = {
     }},
   },
 }
-const SCREEN_SCHEMA = {
-  type: "object", required: ["verdicts"],
-  properties: {
-    verdicts: { type: "array", items: {
-      // evidence is required unconditionally: the prompt says a REFUTED verdict
-      // needs a quoted construction, and leaving the field optional let the model
-      // satisfy the schema while skipping the one thing that makes a kill legitimate.
-      type: "object", required: ["index", "verdict", "evidence"],
-      properties: {
-        index: { type: "number", description: "the [i] label of the claim this verdict is for" },
-        verdict: { enum: ["SURVIVES", "REFUTED"] },
-        evidence: { type: "string", description: "when REFUTED, the quoted line from the code that kills the claim; when SURVIVES, one short sentence on what you checked" },
-      },
-    }},
-  },
-}
 const VERDICT_SCHEMA = {
   type: "object", required: ["verdicts"],
   properties: {
@@ -145,7 +124,6 @@ const REPORT_SCHEMA = {
 
 const stats = {
   level: LEVEL, finders: 0, candidates: 0, overCap: 0, offScope: 0,
-  screenAgents: 0, screenRefuted: 0, screenUnjudged: 0, controlSample: 0, controlDisagreements: 0,
   verifierAgents: 0, agentFailures: 0, agentErrors: 0, unverified: 0, droppedVerdicts: 0,
   reproAttempted: 0, reproduced: 0, contradicted: 0, inconclusive: 0, treeDirty: false,
   badDecisions: 0, backfilled: 0, reported: 0,
@@ -225,7 +203,7 @@ function canonFile(raw) {
 }
 // `order` must be a property of the DIFF, not of the run. Minting it from a shared
 // counter incremented inside each finder's async callback made it depend on which
-// agent's network call resolved first — so control-sample selection and tie-break
+// agent's network call resolved first — so tie-break
 // ranking, both keyed on order, moved with network jitter. Every caller passes a
 // base derived from its own fixed index instead.
 function ingest(raw, cap, kind, label, trustKind, base) {
@@ -271,7 +249,7 @@ if (pool.length === 0) {
   return { level: LEVEL, target: TARGET || undefined, summary: "No candidates found.", findings: [], stats }
 }
 
-// ── Screen + Verify ───────────────────────────────────────────────────────────
+// ── Verify ───────────────────────────────────────────────────────────
 // One parameterised group judge, used by both stages. Retry once, then RETAIN and
 // FLAG rather than drop: the fork discarded every candidate at a location whose
 // verifier agent died, with no log, so real findings vanished invisibly.
@@ -292,23 +270,6 @@ async function judgeGroup(group, cfg) {
   return group.map((c, i) => cfg.apply(c, byIdx[i]))
 }
 
-const SCREEN_CFG = {
-  agentType: "refuter", phase: "Screen", schema: SCREEN_SCHEMA,
-  // The claim ONLY. failure_scenario is deliberately withheld until the senior
-  // stage so the screen cannot inherit the finder's confidence.
-  prompt: g => SCOPE_BLOCK + "\n## Claim at " + loc(g[0]) + "\n\n" +
-    g.map((c, i) => "[" + i + "] " + c.summary).join("\n") +
-    "\n\nJudge this claim against the actual code. You are seeing it alone and on purpose: you are not told who raised it, why, or what else was said about this line. Return REFUTED only with a quoted construction from the code; otherwise SURVIVES.\n\nStructured output only.",
-  // Three outcomes, not two. Collapsing "the refuter judged this and let it live"
-  // into the same value as "the refuter never returned" made a failed screen
-  // indistinguishable from a passed one, while judgeGroup's log claimed the
-  // candidate had been "retained and flagged" — a flag this stage never set.
-  apply: (c, v) => !v
-    ? { ...c, screen: "SURVIVES", screenUnjudged: true }
-    : v.verdict === "REFUTED"
-      ? { ...c, screen: "REFUTED", screenEvidence: v.evidence || "" }
-      : { ...c, screen: "SURVIVES", screenEvidence: v.evidence || "" },
-}
 const VERIFY_CFG = {
   agentType: "verifier", phase: "Verify", schema: VERDICT_SCHEMA,
   prompt: g => SCOPE_BLOCK + "\n## Candidate findings at " + loc(g[0]) + "\n\n" +
@@ -325,74 +286,23 @@ function groupByLoc(cs) {
   return Object.values(by)
 }
 
-// Budget lives at module scope, not per call: screenAndVerify runs a second time
-// for the sweep, and a per-call budget silently doubled the sample.
-let controlRemaining = P.control
-
-// Screen is a BARRIER rather than a pipeline stage, deliberately. Choosing a
-// deterministic first-K control sample is cross-item context over the whole
-// screened set — the one condition that actually justifies a barrier. Selecting
-// it inside a pipeline stage meant the budget was consumed in agent-COMPLETION
-// order, so the same diff sampled different candidates run to run and the
-// measured false-kill rate was not reproducible. The lost pipelining is latency;
-// a measurement you cannot reproduce is worthless.
-async function screenAndVerify(candidates) {
-  const doScreen = candidates.length >= SCREEN_MIN
-  if (!doScreen) log("screen: skipped (" + candidates.length + " candidates, below threshold " + SCREEN_MIN + ")")
-
-  let screened
-  if (doScreen) {
-    // ONE refuter per claim, deliberately not per location. Batching a location's
-    // claims into a single prompt hands the refuter exactly the pile-up that
-    // agents/refuter.md tells it to ignore ("several claims at one location is
-    // not corroboration") — the workflow was contradicting the agent definition,
-    // and a screen that saw N claims at once refuted 0 of 23 on its first real
-    // diff. The verifier still batches by location; only the screen is per-claim.
-    const out = await parallel(candidates.map(c => async () => {
-      stats.screenAgents++
-      return judgeGroup([c], SCREEN_CFG)
-    }))
-    screened = out.filter(Boolean).flat()
-  } else {
-    screened = candidates.map(c => ({ ...c, screen: "UNSCREENED" }))
-  }
-  screened.sort((a, b) => a.order - b.order)
-
-  const killed = screened.filter(c => c.screen === "REFUTED")
-  stats.screenRefuted += killed.length
-  const controlOrders = new Set(killed.slice(0, controlRemaining).map(c => c.order))
-  controlRemaining -= controlOrders.size
-  stats.controlSample += controlOrders.size
-  for (const c of screened) if (controlOrders.has(c.order)) c.control = true
-
-  // Announce the phase for real. VERIFY_CFG.phase only labels individual agent
-  // calls; without this the progress tracker sat on "Screen" for the whole opus
-  // verification stage — the slowest and most expensive part of the run — and the
-  // "Verify" phase declared in meta.phases never appeared at all.
+// There was a cheap `refuter` screen here, ahead of the senior verifier, on the
+// strength of a published ~63% stage-A kill rate. It was measured on this repo's
+// own diffs and cut. Two audited runs: 3 kills, 1 of which the senior verifier
+// rejected — a 33% false-kill rate — for ~16 Sonnet agents a run. It cost more
+// than it saved AND damaged recall, so every candidate now goes straight to the
+// verifier. The control sample that produced those numbers is gone with it; it
+// existed to answer exactly this question, and it did.
+async function verifyAll(candidates) {
   phase("Verify")
-  const toVerify = screened.filter(c => c.screen !== "REFUTED" || c.control)
-  const passedThrough = screened.filter(c => c.screen === "REFUTED" && !c.control)
-  if (toVerify.length === 0) return passedThrough
-
-  const vout = await parallel(groupByLoc(toVerify).map(g => async () => {
+  const vout = await parallel(groupByLoc(candidates).map(g => async () => {
     stats.verifierAgents++
     return judgeGroup(g, VERIFY_CFG)
   }))
-  const judged = vout.filter(Boolean).flat()
-  for (const c of judged) {
-    // `unverified` means the verifier never rendered a judgement — treating that
-    // as disagreement would blame the screen for a flaky verifier call and raise
-    // a spurious "recall is suspect" warning on an otherwise sound run.
-    if (c.control && !c.unverified && c.verdict !== "REFUTED") {
-      stats.controlDisagreements++
-      log("!! control: screen refuted " + loc(c) + " but the verifier did not — stage-A false kill")
-    }
-  }
-  return judged.concat(passedThrough)
+  return vout.filter(Boolean).flat()
 }
 
-phase("Screen")
-let judged = await screenAndVerify(pool)
+let judged = await verifyAll(pool)
 
 // ── Sweep ─────────────────────────────────────────────────────────────────────
 if (P.sweep) {
@@ -410,21 +320,14 @@ if (P.sweep) {
     // Angle finders get kind forced, since the assignment defines the lens.
     // Sweep sorts after every finder: a fixed base above their highest.
     const fresh = ingest(sweep.candidates, SWEEP_MAX, "correctness", "sweep", true, (FINDERS.length + 1) * ORDER_STRIDE)
-    if (fresh.length > 0) judged = judged.concat(await screenAndVerify(fresh))
+    if (fresh.length > 0) judged = judged.concat(await verifyAll(fresh))
   }
 }
 
-// A control the senior verifier did NOT refute is a finding the screen killed
-// wrongly — it belongs in the report, not just in the disagreement counter.
-// Measuring a false kill and then repeating it would be the worst of both.
 let surviving = judged.filter(c => c.verdict && c.verdict !== "REFUTED")
-const rescued = new Set(surviving.filter(c => c.control).map(c => c.order))
 const refuted = judged
-  .filter(c => (c.screen === "REFUTED" || c.verdict === "REFUTED") && !rescued.has(c.order))
-  .map(c => ({
-    file: c.file, line: c.line, summary: c.summary,
-    stage: c.screen === "REFUTED" ? "screen" : "verify",
-  }))
+  .filter(c => c.verdict === "REFUTED")
+  .map(c => ({ file: c.file, line: c.line, summary: c.summary, stage: "verify" }))
 log("verify: " + surviving.length + " kept, " + refuted.length + " refuted")
 
 // Total order — rank, then file, then line, then ingest order. The fork sorted on
@@ -501,7 +404,6 @@ if (surviving.length === 0) {
 // ── Synthesize ────────────────────────────────────────────────────────────────
 phase("Synthesize")
 stats.unverified = surviving.filter(c => c.unverified).length
-stats.screenUnjudged = surviving.filter(c => c.screenUnjudged).length
 const ranked = surviving.slice().sort(byRank)
 const report = await safeAgent(
   "You are acting as a MERGE JUDGE. Your standing instructions as a verifier — the verdict ladder, the recall guard, judging claims against the code — DO NOT APPLY to this task and must be set aside for it.\n\n" +
@@ -572,7 +474,6 @@ let summary = synthOk && report.summary ? report.summary
   : "Synthesis did not return a usable report; findings are listed in verified rank order."
 if (stats.backfilled > 0) summary += " (" + stats.backfilled + " finding(s) added beyond the synthesizer's decisions to fill the cap.)"
 if (stats.agentErrors > 0) summary = "WARNING: " + stats.agentErrors + " agent call(s) errored during this run — coverage is incomplete, so an empty or short report is not evidence of a clean diff. " + summary
-if (stats.controlDisagreements > 0) summary = "WARNING: the refutation screen killed " + stats.controlDisagreements + " candidate(s) the senior verifier would have kept — treat this run's recall as suspect. " + summary
 if (stats.treeDirty) summary = "WARNING: a reproduction agent modified the working tree — run `git status` before trusting this run. " + summary
 
 return { level: LEVEL, target: TARGET || undefined, summary, findings, refuted, stats }

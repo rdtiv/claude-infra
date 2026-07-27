@@ -1,5 +1,5 @@
 ---
-description: Local adversarial code review on the pinned house fleet — sonnet finders, a cheap refutation screen, opus verifiers, and an optional reproduction gate. Runs before the remote reviewer, never instead of it.
+description: Local adversarial code review on the pinned house fleet — sonnet finders, opus verifiers, and an optional reproduction gate. Runs before the remote reviewer, never instead of it.
 ---
 
 You are running the **pinned local review** over the working diff.

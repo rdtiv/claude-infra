@@ -8,8 +8,8 @@
 > `commands/mission.md` (worktree lifecycle), `commands/review-pinned.md` and
 > `workflows/code-review-pinned.js` (the local review gate) — if installing
 > from this file, copy those from the repo when you can. Without them the
-> `refuter` and `reproducer` agents below install correctly but nothing
-> invokes them: they exist only to serve that workflow.
+> `reproducer` agent below installs correctly but nothing invokes it: it exists
+> only to serve that workflow.
 
 **What it installs:** a two-tier delegation policy. The main session
 (Fable or Opus, chosen at session start via `/model`) designs, specs, and
@@ -56,7 +56,7 @@ mechanically enforced.
    swap the hook command to an absolute node path).
 
 **Repo-level install (optional, per repository):** for repos that also run
-cloud sessions (where `~/.claude` doesn't exist), copy the same eight agent
+cloud sessions (where `~/.claude` doesn't exist), copy the same seven agent
 files + the hooks into the repo's `.claude/agents/` and `.claude/hooks/`, add
 the same `PreToolUse` blocks to the repo's `.claude/settings.json`, whitelist
 `.claude/agents/` and `.claude/hooks/` in `.gitignore` if `.claude/*` is
@@ -90,12 +90,6 @@ agent bodies.
 
 ```markdown
 <!-- include:agents/scout.md -->
-```
-
-### `~/.claude/agents/refuter.md`
-
-```markdown
-<!-- include:agents/refuter.md -->
 ```
 
 ### `~/.claude/agents/reproducer.md`

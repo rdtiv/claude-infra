@@ -96,14 +96,13 @@ follows it.
 
 ## What you get
 
-**Eight named agent roles**, each pinning both its model and its reasoning effort:
+**Seven named agent roles**, each pinning both its model and its reasoning effort:
 
 | Role | Model | Effort | For |
 |---|---|---|---|
 | `scout` | sonnet | medium | Read-only recon — map a subsystem, find call sites |
 | `finder` | sonnet | medium | Hunt one angle of a diff, report every candidate |
 | `implementor` | sonnet | medium | Execute one written work package |
-| `refuter` | sonnet | medium | Cheap adversarial screen — kill what the code refutes |
 | `reproducer` | sonnet | high | Make a confirmed finding actually happen, in a sandbox |
 | `architect` | opus | xhigh | Turn a goal into implementor-ready specs |
 | `verifier` | opus | high | Adversarially judge one finding against the code |
@@ -264,7 +263,7 @@ which is exactly why they're never both in context.
 
 | Path | What |
 |---|---|
-| `~/.claude/agents/` | The eight roles above, each pinning model and effort in frontmatter |
+| `~/.claude/agents/` | The seven roles above, each pinning model and effort in frontmatter |
 | `~/.claude/hooks/agent-model-guard.mjs` | Reads the spawned agent's own definition and denies unless it pins an approved `model:` and an explicit `effort:`. Also denies inheriting spawns and `subagent_type: fork` |
 | `~/.claude/hooks/git-destruction-guard.mjs` | Denies `reset --hard`, `clean -f`, `checkout .`, `checkout <ref> -- <path>`, non-staged `restore`, `stash drop` outside `.claude/worktrees/` and scratch paths. Matches quote-stripped text, so merely *mentioning* those commands in a string is fine |
 | `~/.claude/commands/mission.md` | `/mission` and `/mission end` — the full lifecycle |
@@ -318,7 +317,7 @@ own review gate.
 ./verify.sh          # also run automatically by ./install.sh
 ```
 
-142 checks: both guard behavior matrices, every agent pinning both axes, install and
+141 checks: both guard behavior matrices, every agent pinning both axes, install and
 doctrine propagation including idempotency and the migration from older layouts,
 `setup-prompt.md` matching a fresh generation, the shipped workflow parsing and not
 shadowing the built-in `code-review`, and `sync-repo.sh` against a downstream that
