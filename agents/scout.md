@@ -25,7 +25,6 @@ Rules:
 - Note the conventions in play (routing style, store patterns, auth gating,
   telemetry wrappers) when they bear on the question — the consumer is usually
   an architect or implementor who must match them.
-- Read-only: never edit files, never commit.
 
 Return a structured map: entry points, flow/call graph with anchors, relevant
 conventions, and open questions you could not resolve from code alone.

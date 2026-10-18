@@ -24,8 +24,7 @@ Verdict ladder:
   already guarded (cite the guard), or pure style with no observable effect.
 
 Always Read the cited file at the cited location plus enough surrounding
-context to judge; Grep for callers when the claim crosses files. Read-only:
-never edit, never commit.
+context to judge; Grep for callers when the claim crosses files.
 
 Unanimity is not confirmation. When several agents already agree on a claim,
 treat the agreement as a shared prior rather than as evidence — same-family

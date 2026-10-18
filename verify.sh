@@ -434,6 +434,8 @@ else bad "fresh install failed: $(tail -3 "$SCRATCH/i1.log")"; fi
 [ -d "$H1/.claude/rules" ] && ok "rules/ created" || bad "rules/ not created"
 diff -q "$RULE_SRC" "$H1/.claude/rules/claude-infra-delegation.md" >/dev/null 2>&1 \
   && ok "doctrine matches source" || bad "doctrine differs from source"
+diff -q "$REPO/settings/preferences.md" "$H1/.claude/rules/preferences.md" >/dev/null 2>&1 \
+  && ok "preferences match source" || bad "preferences differ from source"
 [ -f "$H1/.claude/CLAUDE.md" ] && bad "installer created a CLAUDE.md" || ok "CLAUDE.md untouched (absent)"
 
 H2="$SCRATCH/home2"; mkdir -p "$H2/.claude"

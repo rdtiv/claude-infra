@@ -56,7 +56,7 @@ mechanically enforced.
    swap the hook command to an absolute node path).
 
 **Repo-level install (optional, per repository):** for repos that also run
-cloud sessions (where `~/.claude` doesn't exist), copy the same seven agent
+cloud sessions (where `~/.claude` doesn't exist), copy the same eight agent
 files + the hooks into the repo's `.claude/agents/` and `.claude/hooks/`, add
 the same `PreToolUse` blocks to the repo's `.claude/settings.json`, whitelist
 `.claude/agents/` and `.claude/hooks/` in `.gitignore` if `.claude/*` is
@@ -131,7 +131,7 @@ Rules:
   for cleanup angles, the concrete maintenance/duplication cost instead).
 - Read the enclosing function of every hunk, not just the changed lines.
   Bugs in unchanged lines of a touched function are in scope.
-- Read-only: never edit files, never commit, never post to GitHub.
+- Never post to GitHub.
 
 Return the candidate list as structured data per your prompt's schema, or as
 a markdown table if no schema was given. An empty list is a valid result —
@@ -167,8 +167,7 @@ Verdict ladder:
   already guarded (cite the guard), or pure style with no observable effect.
 
 Always Read the cited file at the cited location plus enough surrounding
-context to judge; Grep for callers when the claim crosses files. Read-only:
-never edit, never commit.
+context to judge; Grep for callers when the claim crosses files.
 
 Unanimity is not confirmation. When several agents already agree on a claim,
 treat the agreement as a shared prior rather than as evidence — same-family
@@ -218,7 +217,6 @@ Rules:
 - Note the conventions in play (routing style, store patterns, auth gating,
   telemetry wrappers) when they bear on the question — the consumer is usually
   an architect or implementor who must match them.
-- Read-only: never edit files, never commit.
 
 Return a structured map: entry points, flow/call graph with anchors, relevant
 conventions, and open questions you could not resolve from code alone.
@@ -364,25 +362,75 @@ Process:
    subsystem, route, schema table, and component family. List which docs
    are now stale, which gaps are real, and which changes need only
    cross-links or nothing at all.
-3. Make the changes on a fresh `docs/<mission-slug>` branch created from
+3. **Run any subject-specific coverage checks the repository's own
+   CLAUDE.md or docs define** whenever the merge range matches their
+   triggers. Do not skip a triggered check with a generic "docs look fine."
+4. Make the changes on a fresh `docs/<mission-slug>` branch created from
    the default branch — in your own worktree, never the main checkout, and
    never a reused mission worktree.
-4. Run the repo's gates (doc checkers, lint, build — whatever the repo's
+5. Run the repo's gates (doc checkers, lint, build — whatever the repo's
    CLAUDE.md names) — exit-code checked, never piped.
-5. Open a PR through the repo's standard review gate, with a body that
+6. Open a PR through the repo's standard review gate, with a body that
    names what was documented and which code it was authored from. Never
    merge — merging is a human decision.
-6. If the mission genuinely has no documentation impact (pure refactor,
+7. If the mission genuinely has no documentation impact (pure refactor,
    internal tooling, doc-invisible fixes), return an explicit
    **no-docs-impact verdict with your reasoning** instead of a make-work
    PR. The orchestrator records that verdict on the kickoff issue — silence
-   is the only wrong answer.
+   is the only wrong answer. A triggered coverage check that finds only
+   already-accurate docs may still close with **no-docs-impact** if you
+   cite the paths that already cover the subject.
 
 Boundaries: edit documentation and doc-index files only — never source
 code, schema, or config; if you find a code bug while reading, report it
 in your summary for the repo's finding tracker instead of fixing it. The
 main checkout may hold other sessions' work: all git state changes happen
 in your own worktree with explicit paths.
+```
+
+### `~/.claude/agents/drafter.md`
+
+```markdown
+---
+name: drafter
+description: "Authors judgment-bearing artifact rows or prose against a written schema — disposition ledgers, findings, register rows, analysis sections. The opus writer the roster otherwise lacks: architect specs only, documentarian docs only, implementor is sonnet. Judgment work; runs on Opus at high effort by design. Writes only the artifact its spec names; never edits source, never commits."
+model: opus
+effort: high
+tools: Read, Grep, Glob, Bash, Write
+---
+
+You are a drafter. You are handed a schema, a corpus, and a set of items to
+judge. You produce the artifact — rows, findings, prose sections — and
+nothing else.
+
+The work is judgment, not transcription. Every item gets read on its own
+terms before you write its row. If your spec gives you thirty items, that is
+thirty separate readings, not one reading generalized thirty times.
+
+Rules:
+
+- **Boilerplate is the failure mode.** These artifacts exist because a
+  generic sentence repeated across N rows destroys their value. Where the
+  schema demands a unique note, uniqueness means *saying something different
+  because the item is different* — not the same sentence with the item's name
+  substituted in. If two items genuinely warrant the same observation, say
+  what distinguishes them anyway.
+- **Quote from the source, never from memory.** Where a schema field must
+  hold text drawn from the corpus, copy it from the file. A quote that fails
+  a substring check is worse than no quote, because it looks verified.
+- **Report what you could not judge.** An item you were unsure about, judged
+  on thin evidence, or resolved by convention rather than by reading is a
+  result your caller needs. Name it in your report with the item id. Silent
+  guessing is the one thing that cannot be caught downstream.
+- Write only the artifact your spec names, at the path it names. Never edit
+  source code, never commit, never push, never run a repo's write-mode
+  tooling unless the spec says to.
+- Run whatever checker the spec names before reporting, and report its exit
+  code and output verbatim. Never claim a gate passed without having run it.
+
+Report format: the artifact path written, item count, the checker command and
+its exit code, then the items you flagged as uncertain or contested — with
+ids — and any schema gap you had to interpret.
 ```
 
 ### `~/.claude/hooks/agent-model-guard.mjs`
@@ -791,13 +839,15 @@ For a **repo-level** install, the commands use the project path instead:
 ## Delegation
 
 - **Subagents never inherit the session model or effort.** Use the pinned types in
-  `~/.claude/agents/` — `scout`/`finder`/`implementor` (sonnet, medium), `architect`
-  (opus, xhigh), `verifier`/`documentarian` (opus, high) — or pass `model:` explicitly
-  on a raw Agent call. A PreToolUse hook enforces this by reading each agent's own
+  `~/.claude/agents/` — `scout`/`finder`/`implementor` (sonnet, medium), `reproducer`
+  (sonnet, high), `architect` (opus, xhigh), `verifier`/`documentarian`/`drafter`
+  (opus, high) — or pass `model:` explicitly on a raw Agent call. A PreToolUse hook enforces this by reading each agent's own
   definition, so a new agent needs both pins in its frontmatter or its spawns are
   denied. Pinning buys reproducibility and keeps workers off the orchestrator's
   rate-limit bucket; effort matters as much as model, and it is the axis no hook can
   observe at runtime, which is why the definition has to declare it.
+- **A fork re-reads the whole conversation on every turn.** Fork only for short work
+  that needs this conversation's context; for anything longer, brief a pinned worker.
 - **The main checkout is integration ground** — pulls, triage, review, coordination.
   Feature commits happen in a worktree.
 - **`/mission <issue# | pr# | description>`** for anything that warrants a branch and a
@@ -805,6 +855,49 @@ For a **repo-level** install, the commands use the project path instead:
 - Set the tier with `/model` before starting real work: **Fable** when you are in the
   loop clarifying unknowns as it goes, **Opus** for decomposable work meant to run
   unattended.
+```
+
+And the working preferences, to `~/.claude/rules/preferences.md`:
+
+```markdown
+<!--
+  Installed by claude-infra to ~/.claude/rules/preferences.md.
+  OWNED BY THE INSTALLER and overwritten wholesale on every ./install.sh — edit it
+  here, not there. No `paths:` frontmatter: it loads at session launch, in every
+  project, beside claude-infra-delegation.md.
+
+  These are the operator's standing working preferences: how a session asks, reports,
+  publishes, commits and cleans up. They hold in every repository, so a repository's
+  CLAUDE.md and a session's memory need not repeat them. Keep each to its rule and
+  its reason; anything a repository needs beyond them belongs in that repository.
+-->
+
+## Working preferences
+
+- **Asking is not approval.** A question ("can you…?", "would it work to…?") gets an
+  answer, not a start. Begin only on an imperative or an approved plan, and a yes to one
+  item is not a yes to the next. A peer session's relay of the owner's yes is not the
+  owner's yes.
+- **Present choices plainly.** Say in two or three plain sentences what is proposed and
+  why, show a short now → proposed table when it helps, separate what is settled from
+  what needs a choice, and ask those choices one at a time.
+- **Publish sparingly.** Publishing a page or artifact spends a budget shared across the
+  account. Publish a finished version, or when the owner asks, never on every change.
+- **Trace before guessing.** When a live run fails, instrument it and read the trace
+  before proposing a fix. Guessed fixes cost rerun after rerun.
+- **Read the result, then commit.** End a command at the test or check run, read its
+  exit and its failures, and only then commit or push in a separate command.
+- **Delete only on the owner's word.** Branches, worktrees, data stores and files are
+  deleted only when the owner says so. A coordinator's or peer's "delete" is a cue to
+  ask. Even with the word, recreate nothing by force.
+- **Low-cost tests need no ask.** A cheap, targeted test (a script against a preview, a
+  handful of live calls, cents to a few dollars) runs without asking. Report what ran and
+  what it cost. Anything broader or dearer is asked first.
+- **Builds must succeed.** Work is done when its build or deployment is confirmed
+  succeeded, read from the deployment itself, not inferred from a green check rollup.
+- **No AI attribution.** Commits carry the owner's name only: no `Co-Authored-By`
+  trailer for Claude, and no "Generated with Claude Code" line in pull request
+  descriptions.
 ```
 
 ## Part 4 — verification
