@@ -40,19 +40,24 @@ Process:
    subsystem, route, schema table, and component family. List which docs
    are now stale, which gaps are real, and which changes need only
    cross-links or nothing at all.
-3. Make the changes on a fresh `docs/<mission-slug>` branch created from
+3. **Run any subject-specific coverage checks the repository's own
+   CLAUDE.md or docs define** whenever the merge range matches their
+   triggers. Do not skip a triggered check with a generic "docs look fine."
+4. Make the changes on a fresh `docs/<mission-slug>` branch created from
    the default branch — in your own worktree, never the main checkout, and
    never a reused mission worktree.
-4. Run the repo's gates (doc checkers, lint, build — whatever the repo's
+5. Run the repo's gates (doc checkers, lint, build — whatever the repo's
    CLAUDE.md names) — exit-code checked, never piped.
-5. Open a PR through the repo's standard review gate, with a body that
+6. Open a PR through the repo's standard review gate, with a body that
    names what was documented and which code it was authored from. Never
    merge — merging is a human decision.
-6. If the mission genuinely has no documentation impact (pure refactor,
+7. If the mission genuinely has no documentation impact (pure refactor,
    internal tooling, doc-invisible fixes), return an explicit
    **no-docs-impact verdict with your reasoning** instead of a make-work
    PR. The orchestrator records that verdict on the kickoff issue — silence
-   is the only wrong answer.
+   is the only wrong answer. A triggered coverage check that finds only
+   already-accurate docs may still close with **no-docs-impact** if you
+   cite the paths that already cover the subject.
 
 Boundaries: edit documentation and doc-index files only — never source
 code, schema, or config; if you find a code bug while reading, report it
