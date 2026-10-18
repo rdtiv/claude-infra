@@ -115,7 +115,9 @@ Decommission checklist — a mission is not done until all of these:
    saying what remains and why.
 2. **Documentation gate**: launch the pinned `documentarian` agent over the
    mission's merged work (give it the kickoff artifact and the merged PR
-   list). The gate closes when one of these is true: the docs PR has landed
+   list). In the launch prompt, name any subject-specific coverage checks
+   the repository's own docs define that the merge range triggers, so the
+   gate runs them. The gate closes when one of these is true: the docs PR has landed
    through the repo's review gate; the docs PR is open, gated, and explicitly
    parked on the kickoff artifact as the remaining item (merging stays a human
    decision — never block decommission on the operator's merge timing); or the
@@ -171,8 +173,7 @@ Decommission checklist — a mission is not done until all of these:
 5. Remove **every** mission worktree and delete the whole branch family; delete
    remote branches only after the whole stack is in. Re-run `git worktree list`
    afterwards and confirm none of the mission's entries survive — a stranded
-   worktree silently blocks the next mission from reusing the branch name, and
-   the pruning is what the singular phrasing here used to miss.
+   worktree silently blocks the next mission from reusing the branch name.
 6. Report the decommission in your final summary: which worktrees were removed,
    which branches deleted, state externalized where.
 
@@ -199,7 +200,7 @@ Decommission checklist — a mission is not done until all of these:
   route around it; never `reset`/`clean`/`checkout .` it away. (A review
   finder once "fixed" a blocked diff with `git reset --hard && git clean -fd`
   in the main checkout and destroyed 19 files of a parallel session's work.)
-  The `git-destruction-guard` hook now denies destructive git outside
+  The `git-destruction-guard` hook denies destructive git outside
   `.claude/worktrees/` and scratch paths — mechanically, for every session
   and subagent.
 - **Read-only agents need the rule IN THE PROMPT.** Scout/finder/verifier
@@ -240,6 +241,19 @@ Decommission checklist — a mission is not done until all of these:
   trusting behavior probes — hot reload across branch switches serves
   stale module state (two model-behavior probes were invalidated this
   way).
+- **A rebuilt server is stopped by port, started with its log read, and
+  proved by build id before any probe.** Stop with `kill $(lsof -t -i
+  :<port>)` and assert the port is free — a `pkill` by process name is a
+  guess that misses `next-server`. Never rebuild under a running server.
+  A backgrounded start has no exit code to check, so poll the port and
+  grep its log for `EADDRINUSE` before anything else runs. Then compare
+  `.next/BUILD_ID` with the id the served HTML embeds, and run a three-page
+  probe that logs every 4xx and 5xx before a long walk. Put stop, build,
+  start, verify in one scratch script per mission so the order is never
+  retyped. (Learned when a missed `pkill` left the old server serving a
+  build that `next build` had rewritten underneath it; a 222-page walk
+  then reported chunk 404s and 500s that were the stale server's, and the
+  run had to be thrown away.)
 - **Parallel missions can collide on main** (file moves, shared docs).
   At kickoff, note territories the mission will touch; before integration
   merges, re-fetch and check whether main moved under you — resolve with

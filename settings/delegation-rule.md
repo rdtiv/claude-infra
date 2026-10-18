@@ -12,13 +12,15 @@
 ## Delegation
 
 - **Subagents never inherit the session model or effort.** Use the pinned types in
-  `~/.claude/agents/` — `scout`/`finder`/`implementor` (sonnet, medium), `architect`
-  (opus, xhigh), `verifier`/`documentarian` (opus, high) — or pass `model:` explicitly
-  on a raw Agent call. A PreToolUse hook enforces this by reading each agent's own
+  `~/.claude/agents/` — `scout`/`finder`/`implementor` (sonnet, medium), `reproducer`
+  (sonnet, high), `architect` (opus, xhigh), `verifier`/`documentarian`/`drafter`
+  (opus, high) — or pass `model:` explicitly on a raw Agent call. A PreToolUse hook enforces this by reading each agent's own
   definition, so a new agent needs both pins in its frontmatter or its spawns are
   denied. Pinning buys reproducibility and keeps workers off the orchestrator's
   rate-limit bucket; effort matters as much as model, and it is the axis no hook can
   observe at runtime, which is why the definition has to declare it.
+- **A fork re-reads the whole conversation on every turn.** Fork only for short work
+  that needs this conversation's context; for anything longer, brief a pinned worker.
 - **The main checkout is integration ground** — pulls, triage, review, coordination.
   Feature commits happen in a worktree.
 - **`/mission <issue# | pr# | description>`** for anything that warrants a branch and a

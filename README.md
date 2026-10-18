@@ -97,7 +97,7 @@ follows it.
 
 ## What you get
 
-**Seven named agent roles**, each pinning both its model and its reasoning effort:
+**Eight named agent roles**, each pinning both its model and its reasoning effort:
 
 | Role | Model | Effort | For |
 |---|---|---|---|
@@ -108,6 +108,7 @@ follows it.
 | `architect` | opus | xhigh | Turn a goal into implementor-ready specs |
 | `verifier` | opus | high | Adversarially judge one finding against the code |
 | `documentarian` | opus | high | Mission-end documentation gate |
+| `drafter` | opus | high | Write judgment-bearing rows or prose against a written schema |
 
 **Two guardrails.** One refuses to spawn a subagent whose definition doesn't pin both
 axes, or that names an unapproved model. The other refuses working-tree-destroying git
@@ -293,7 +294,7 @@ which is exactly why they're never both in context.
 
 | Path | What |
 |---|---|
-| `~/.claude/agents/` | The seven roles above, each pinning model and effort in frontmatter |
+| `~/.claude/agents/` | The eight roles above, each pinning model and effort in frontmatter |
 | `~/.claude/hooks/agent-model-guard.mjs` | Reads the spawned agent's own definition and denies unless it pins an approved `model:` and an explicit `effort:`. Also denies inheriting spawns and `subagent_type: fork` |
 | `~/.claude/hooks/git-destruction-guard.mjs` | Denies `reset --hard`, `clean -f`, `checkout .`, `checkout <ref> -- <path>`, non-staged `restore`, `stash drop` outside `.claude/worktrees/` and scratch paths. Matches quote-stripped text, so merely *mentioning* those commands in a string is fine |
 | `~/.claude/commands/mission.md` | `/mission` and `/mission end` — the full lifecycle |
@@ -301,6 +302,7 @@ which is exactly why they're never both in context.
 | `~/.claude/workflows/` | Dynamic workflows the harness discovers by name — currently `code-review-pinned.js`. Unlike the other directories this one is **shared ground**: it is a general Claude Code location you may already use, so only files carrying the `claude-infra-owned` marker on line 1 are ever overwritten, and anything else is left untouched with a warning |
 | `~/.claude/scripts/` | Executables the doctrine tells a session to run — currently `landed.sh`, the check that decides whether a worktree is safe to remove. Hooks are what the harness runs for you; these are what you run |
 | `~/.claude/rules/claude-infra-delegation.md` | The short always-loaded doctrine. Installer-owned and overwritten every run; auto-loaded at user scope, so it needs no entry in `CLAUDE.md` |
+| `~/.claude/rules/preferences.md` | The operator's working preferences: asking is not approval, publish sparingly, delete only on the owner's word, no AI attribution in commits, and the rest. Installer-owned the same way |
 | `~/.claude/settings.json` | Hook wiring, merged into whatever is already there |
 
 ---
@@ -347,7 +349,7 @@ own review gate.
 ./verify.sh          # also run automatically by ./install.sh
 ```
 
-141 checks: both guard behavior matrices, every agent pinning both axes, install and
+143 checks: both guard behavior matrices, every agent pinning both axes, install and
 doctrine propagation including idempotency and the migration from older layouts,
 `setup-prompt.md` matching a fresh generation, the shipped workflow parsing and not
 shadowing the built-in `code-review`, and `sync-repo.sh` against a downstream that

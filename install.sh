@@ -84,6 +84,9 @@ node "$DIR/settings/merge-hook.mjs"
 # this replaces; do not reintroduce a conditional here.
 cp -f "$DIR/settings/delegation-rule.md" "$HOME/.claude/rules/claude-infra-delegation.md"
 echo "doctrine written to ~/.claude/rules/claude-infra-delegation.md"
+# The operator's working preferences: the same ownership as the doctrine above.
+cp -f "$DIR/settings/preferences.md" "$HOME/.claude/rules/preferences.md"
+echo "preferences written to ~/.claude/rules/preferences.md"
 
 # Legacy installs: warn, never migrate. The old section has no reliable end
 # boundary — on a real machine it is followed by the operator's own preferences
@@ -103,7 +106,8 @@ fi
 # Post-install sanity: did the copy actually land, and is settings.json still valid?
 for f in "$HOME/.claude/hooks/agent-model-guard.mjs" \
          "$HOME/.claude/hooks/git-destruction-guard.mjs" \
-         "$HOME/.claude/rules/claude-infra-delegation.md"; do
+         "$HOME/.claude/rules/claude-infra-delegation.md" \
+         "$HOME/.claude/rules/preferences.md"; do
   [ -f "$f" ] || { echo "install: FAILED — $f missing after copy"; exit 1; }
 done
 node -e "JSON.parse(require('fs').readFileSync(process.env.HOME+'/.claude/settings.json'));console.log('settings.json valid')"

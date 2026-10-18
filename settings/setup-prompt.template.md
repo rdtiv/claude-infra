@@ -56,7 +56,7 @@ mechanically enforced.
    swap the hook command to an absolute node path).
 
 **Repo-level install (optional, per repository):** for repos that also run
-cloud sessions (where `~/.claude` doesn't exist), copy the same seven agent
+cloud sessions (where `~/.claude` doesn't exist), copy the same eight agent
 files + the hooks into the repo's `.claude/agents/` and `.claude/hooks/`, add
 the same `PreToolUse` blocks to the repo's `.claude/settings.json`, whitelist
 `.claude/agents/` and `.claude/hooks/` in `.gitignore` if `.claude/*` is
@@ -108,6 +108,12 @@ agent bodies.
 
 ```markdown
 <!-- include:agents/documentarian.md -->
+```
+
+### `~/.claude/agents/drafter.md`
+
+```markdown
+<!-- include:agents/drafter.md -->
 ```
 
 ### `~/.claude/hooks/agent-model-guard.mjs`
@@ -162,6 +168,12 @@ For a **repo-level** install, the commands use the project path instead:
 
 ```markdown
 <!-- include:settings/delegation-rule.md -->
+```
+
+And the working preferences, to `~/.claude/rules/preferences.md`:
+
+```markdown
+<!-- include:settings/preferences.md -->
 ```
 
 ## Part 4 — verification
